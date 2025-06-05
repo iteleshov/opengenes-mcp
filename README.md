@@ -1,5 +1,11 @@
 # opengenes-mcp
 
+[![Tests](https://github.com/longevity-genie/opengenes-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/longevity-genie/opengenes-mcp/actions/workflows/test.yml)
+[![PyPI version](https://badge.fury.io/py/opengenes-mcp.svg)](https://badge.fury.io/py/opengenes-mcp)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
 MCP (Model Context Protocol) server for OpenGenes database
 
 This server implements the Model Context Protocol (MCP) for OpenGenes, providing a standardized interface for accessing aging and longevity research data. MCP enables AI assistants and agents to query comprehensive biomedical datasets through structured interfaces. The OpenGenes database contains:
@@ -80,28 +86,58 @@ The HTTP mode will start a web server that you can access at `http://localhost:3
 
 ## Configuring your AI Client (Anthropic Claude Desktop, Cursor, Windsurf, etc.)
 
+We provide preconfigured JSON files for different use cases:
+
 ### For STDIO mode (recommended):
-Create a configuration file for your MCP client:
+Use `mcp-config-stdio.json` for connecting to the server via uvx:
 
 ```json
 {
   "mcpServers": {
     "opengenes-mcp": {
       "command": "uvx",
-      "args": ["opengenes-mcp"]
+      "args": ["opengenes-mcp"],
+      "env": {
+        "MCP_PORT": "3001",
+        "MCP_HOST": "0.0.0.0",
+        "MCP_TRANSPORT": "stdio"
+      }
     }
   }
 }
 ```
 
 ### For HTTP mode:
-If you prefer to run the server as a web service:
+Use `mcp-config.json` for connecting to a locally running HTTP server:
 
 ```json
 {
   "mcpServers": {
     "opengenes-mcp": {
-      "url": "http://localhost:3001/mcp"
+      "url": "http://localhost:3001/mcp",
+      "type": "streamable-http",
+      "env": {
+        "API_ACCESS_TOKEN": "access-token"
+      }
+    }
+  }
+}
+```
+
+### For local development:
+Use `mcp-config-stdio-debug.json` when working with the cloned repository:
+
+```json
+{
+  "mcpServers": {
+    "opengenes-mcp": {
+      "command": "uv",
+      "args": ["run", "stdio"],
+      "env": {
+        "MCP_PORT": "3001",
+        "MCP_HOST": "0.0.0.0",
+        "MCP_TRANSPORT": "stdio"
+      }
     }
   }
 }
@@ -111,24 +147,37 @@ If you prefer to run the server as a web service:
 
 If you want to inspect the methods provided by the MCP server, use npx (you may need to install nodejs and npm):
 
-For STDIO mode:
+For STDIO mode with uvx:
+```bash
+npx @modelcontextprotocol/inspector --config mcp-config-stdio.json --server opengenes-mcp
+```
+
+For HTTP mode (ensure server is running first):
+```bash
+npx @modelcontextprotocol/inspector --config mcp-config.json --server opengenes-mcp
+```
+
+For local development:
+```bash
+npx @modelcontextprotocol/inspector --config mcp-config-stdio-debug.json --server opengenes-mcp
+```
+
+You can also run the inspector manually and configure it through the interface:
 ```bash
 npx @modelcontextprotocol/inspector
 ```
 
-Then manually configure:
-- **Command**: `uvx`
-- **Arguments**: `["opengenes-mcp"]`
+After that you can explore the tools and resources with MCP Inspector at http://127.0.0.1:6274 (note, if you run inspector several times it can change port)
 
-For HTTP mode (if server is running):
-```bash
-npx @modelcontextprotocol/inspector
-```
+### Integration with AI Systems
 
-Then manually configure:
-- **URL**: `http://localhost:3001/mcp`
+To integrate this server with your MCP-compatible AI client, you can use one of the preconfigured JSON files provided in this repository:
 
-After that you can explore the tools and resources with MCP Inspector at http://127.0.0.1:6274
+*   **For connecting via STDIO mode (recommended):** Use `mcp-config-stdio.json`. This uses uvx to run the published package and doesn't require you to run anything locally first.
+*   **For connecting to a locally running HTTP server:** Use `mcp-config.json`. Ensure the server is running first via `uv run server` (see [Running the MCP Server](#running-the-mcp-server)).
+*   **For local development:** Use `mcp-config-stdio-debug.json`. This is useful when working with the cloned repository during development.
+
+Simply point your AI client (like Cursor, Windsurf, ClaudeDesktop, VS Code with Copilot, or [others](https://github.com/punkpeye/awesome-mcp-clients)) to use the appropriate configuration file.
 
 ## Repository setup
 
@@ -215,6 +264,19 @@ WHERE lc.HGNC IS NOT NULL;
 
 ## Testing & Verification
 
+### Environment Setup for LLM Agent Tests
+
+If you want to run LLM agent tests that use MCP functions with Gemini models, you need to set up a `.env` file with your Gemini API key:
+
+```bash
+# Create a .env file in the project root
+echo "GEMINI_API_KEY=your-gemini-api-key-here" > .env
+```
+
+**Note:** The `.env` file and Gemini API key are only required for running LLM agent tests. All other tests and basic MCP server functionality work without any API keys.
+
+### Running Tests
+
 Run tests for the MCP server:
 ```bash
 uv run pytest -vvv -s
@@ -225,15 +287,33 @@ You can also run manual tests:
 uv run python test/manual_test_questions.py
 ```
 
-## Architecture
+You can use MCP inspector with locally built MCP server same way as with uvx.
 
-The server is built using:
+*Note: Using the MCP Inspector is optional. Most MCP clients (like Cursor, Windsurf, etc.) will automatically display the available tools from this server once configured. However, the Inspector can be useful for detailed testing and exploration.*
 
-- **FastMCP**: Modern MCP framework for Python
-- **SQLite**: Local database storage for OpenGenes data
-- **Pydantic**: Data validation and serialization
-- **aiosqlite**: Async SQLite support
-- **Eliot**: Structured logging
+*If you choose to use the Inspector via `npx`, ensure you have Node.js and npm installed. Using [nvm](https://github.com/nvm-sh/nvm) (Node Version Manager) is recommended for managing Node.js versions.*
+
+## Example questions that MCP helps to answer
+
+* What genes need to be downregulated in worms to extend their lifespan?
+* What processes are improved in GHR knockout mice?
+* Which genetic intervention led to the greatest increase in lifespan in flies?
+* To what extent did the lifespan increase in mice overexpressing VEGFA?
+* Are there any liver-specific interventions that increase lifespan in mice?
+* Which gene-longevity association is confirmed by the greatest number of studies?
+* What polymorphisms in FOXO3 are associated with human longevity?
+* In which ethnic groups was the association of the APOE gene with longevity shown?
+* Is the INS gene polymorphism associated with longevity?
+* What genes are associated with transcriptional alterations?
+* Which hallmarks are associated with the KL gene?
+* What genes change their expression with aging in humans?
+* How many genes are associated with longevity in humans?
+* What types of studies have been conducted on the IGF1R gene?
+* What evidence of the link between PTEN and aging do you know? 
+* What genes are associated with both longevity and altered expression in aged humans?
+* Is the expression of the ACE2 gene altered with aging in humans?
+* Interventions on which genes extended mice lifespan most of all?
+* Which knockdowns were most lifespan extending on model animals?
 
 ## License
 

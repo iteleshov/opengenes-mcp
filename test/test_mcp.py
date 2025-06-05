@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from fastmcp import Client
-from opengenes_mcp.server import OpenGenesTools, DatabaseManager, QueryResult
+from opengenes_mcp.server import OpenGenesMCP, DatabaseManager, QueryResult
 
 
 class TestOpenGenesMCPServer:
@@ -123,7 +123,7 @@ class TestOpenGenesMCPServer:
     @pytest.fixture
     def mcp_server(self, sample_db):
         """Create OpenGenes MCP server instance with test database."""
-        return OpenGenesTools(
+        return OpenGenesMCP(
             name="TestOpenGenesServer",
             db_path=sample_db,
             prefix="test_opengenes_",
@@ -133,7 +133,7 @@ class TestOpenGenesMCPServer:
     @pytest.fixture
     def mcp_server_huge_query(self, sample_db):
         """Create OpenGenes MCP server instance with huge query tool enabled."""
-        return OpenGenesTools(
+        return OpenGenesMCP(
             name="TestOpenGenesServerHuge",
             db_path=sample_db,
             prefix="test_opengenes_",
@@ -197,8 +197,8 @@ class TestOpenGenesMCPServer:
                     {"sql": "INSERT INTO lifespan_change (HGNC) VALUES ('TEST')"}
                 )
             
-            # The error should mention that only SELECT queries are allowed
-            assert "Only SELECT queries are allowed" in str(exc_info.value)
+            # The error should mention that write operations are not allowed
+            assert "Write operation attempted on read-only database" in str(exc_info.value)
 
             # Test that UPDATE is blocked
             with pytest.raises(Exception):
@@ -409,7 +409,7 @@ class TestErrorHandling:
                 mock_connect.side_effect = sqlite3.Error("Mock database error")
                 # This will fail during initialization but we can test error paths
                 try:
-                    server = OpenGenesTools(name="ErrorTestServer")
+                    server = OpenGenesMCP(name="ErrorTestServer")
                     yield server
                 except Exception:
                     # Expected to fail, but we want to test the error handling
@@ -470,7 +470,7 @@ class TestErrorHandling:
     @pytest.fixture
     def mcp_server(self, sample_db):
         """Create OpenGenes MCP server instance with test database."""
-        return OpenGenesTools(
+        return OpenGenesMCP(
             name="TestOpenGenesServer",
             db_path=sample_db,
             prefix="test_opengenes_",

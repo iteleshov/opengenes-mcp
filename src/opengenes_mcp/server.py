@@ -3,6 +3,7 @@
 
 import asyncio
 import sqlite3
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
@@ -13,6 +14,11 @@ from eliot import start_action
 
 # Get the database path using proper pathlib resolution
 DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "open_genes.sqlite"
+
+# Configuration
+DEFAULT_HOST = os.getenv("MCP_HOST", "0.0.0.0")
+DEFAULT_PORT = int(os.getenv("MCP_PORT", "3001"))
+DEFAULT_TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http")
 
 class QueryResult(BaseModel):
     """Result from a database query."""
@@ -31,36 +37,42 @@ class DatabaseManager:
     def execute_query(self, sql: str, params: Optional[tuple] = None) -> QueryResult:
         """Execute a read-only SQL query and return results."""
         with start_action(action_type="execute_query", sql=sql, params=params) as action:
-            # Basic safety check for read-only operations
-            sql_upper = sql.upper().strip()
-            if any(keyword in sql_upper for keyword in ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 'TRUNCATE']):
-                action.log(message_type="query_rejected", error="Only SELECT queries are allowed")
-                raise ValueError("Only SELECT queries are allowed")
+            # Execute query using read-only connection - SQLite will enforce read-only at database level
+            # Using URI format with mode=ro for true read-only access
+            readonly_uri = f"file:{self.db_path}?mode=ro"
             
-            # Execute query - let any DB errors bubble up naturally
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row  # This allows dict-like access to rows
-                cursor = conn.cursor()
-                
-                if params:
-                    cursor.execute(sql, params)
+            try:
+                with sqlite3.connect(readonly_uri, uri=True) as conn:
+                    conn.row_factory = sqlite3.Row  # This allows dict-like access to rows
+                    cursor = conn.cursor()
+                    
+                    if params:
+                        cursor.execute(sql, params)
+                    else:
+                        cursor.execute(sql)
+                    
+                    rows = cursor.fetchall()
+                    # Convert sqlite3.Row objects to dictionaries
+                    rows_dicts = [dict(row) for row in rows]
+                    
+                    result = QueryResult(
+                        rows=rows_dicts,
+                        count=len(rows_dicts),
+                        query=sql
+                    )
+                    
+                    action.add_success_fields(rows_count=len(rows_dicts))
+                    return result
+            except sqlite3.OperationalError as e:
+                if "readonly database" in str(e).lower():
+                    error_msg = f"Write operation attempted on read-only database. Rejected query: {sql}"
+                    action.log(message_type="query_rejected", error=error_msg, rejected_query=sql)
+                    raise ValueError(error_msg) from e
                 else:
-                    cursor.execute(sql)
-                
-                rows = cursor.fetchall()
-                # Convert sqlite3.Row objects to dictionaries
-                rows_dicts = [dict(row) for row in rows]
-                
-                result = QueryResult(
-                    rows=rows_dicts,
-                    count=len(rows_dicts),
-                    query=sql
-                )
-                
-                action.add_success_fields(rows_count=len(rows_dicts))
-                return result
+                    # Re-raise other operational errors
+                    raise
 
-class OpenGenesTools(FastMCP):
+class OpenGenesMCP(FastMCP):
     """OpenGenes MCP Server with database tools that can be inherited and extended."""
     
     def __init__(
@@ -108,38 +120,108 @@ class OpenGenesTools(FastMCP):
     
     def _register_opengenes_resources(self):
         """Register OpenGenes-specific resources."""
-        from opengenes_mcp.resources import register_resources
-        register_resources(self)
+        
+        @self.resource(f"resource://{self.prefix}db-prompt")
+        def get_db_prompt() -> str:
+            """
+            Get the database prompt that describes the OpenGenes database schema and usage guidelines.
+            
+            This resource contains detailed information about:
+            - Database tables and their schemas
+            - Column enumerations and valid values
+            - Usage guidelines for querying the database
+            - Examples of common queries
+            
+            Returns:
+                The complete database prompt text
+            """
+            with start_action(action_type="get_db_prompt") as action:
+                try:
+                    # Get the prompt file path using proper pathlib resolution
+                    project_root = Path(__file__).resolve().parent.parent.parent
+                    prompt_path = project_root / "data" / "prompt.txt"
+                    
+                    if prompt_path.exists():
+                        content = prompt_path.read_text(encoding='utf-8')
+                        action.add_success_fields(file_exists=True, content_length=len(content))
+                        return content
+                    else:
+                        action.add_error_fields(file_exists=False, error="Prompt file not found")
+                        return "Database prompt file not found."
+                except Exception as e:
+                    action.add_error_fields(error=str(e), error_type="file_read_error")
+                    return f"Error reading prompt file: {e}"
+        
+        @self.resource(f"resource://{self.prefix}schema-summary")
+        def get_schema_summary() -> str:
+            """
+            Get a summary of the OpenGenes database schema.
+            
+            Returns:
+                A formatted summary of tables and their purposes
+            """
+            summary = """OpenGenes Database Schema Summary
+
+1. lifespan_change
+   - Contains experimental data about genetic interventions and their effects on lifespan
+   - Key columns: HGNC (gene symbol), model_organism, sex, effect_on_lifespan
+   - Includes intervention details, lifespan measurements, significance data
+   - Contains data from various model organisms (mouse, C. elegans, fly, etc.)
+
+2. gene_criteria  
+   - Contains criteria classifications for aging-related genes
+   - Key columns: HGNC (gene symbol), criteria
+   - 12 different aging-related criteria categories
+   - Links genes to specific aging research criteria
+
+3. gene_hallmarks
+   - Contains hallmarks of aging associated with specific genes  
+   - Key columns: HGNC (gene symbol), hallmarks of aging
+   - Maps genes to biological hallmarks of aging process
+   - Includes various aging-related cellular and molecular processes
+
+4. longevity_associations
+   - Contains genetic variants associated with longevity
+   - Key columns: HGNC (gene symbol), polymorphism details, ethnicity, study type
+   - Population genetics data from longevity studies
+   - Includes SNPs, indels, and other genetic variations
+
+All tables are linked by HGNC gene symbols, allowing for comprehensive cross-table queries about aging-related genes."""
+            
+            return summary
     
     def db_query(self, sql: str) -> QueryResult:
         """
         Execute a read-only SQL query against the OpenGenes database.
         
-        This tool queries the following tables:
+        SECURITY: This tool uses SQLite's built-in read-only mode to enforce data protection.
+        The database connection is opened in read-only mode, preventing any write operations
+        at the database level. Any attempt to modify data will be automatically rejected by SQLite.
         
-        1. lifespan_change - Contains experimental data about genetic interventions and their effects on lifespan
-        2. gene_criteria - Contains criteria classifications for aging-related genes  
-        3. gene_hallmarks - Contains hallmarks of aging associated with specific genes
-        4. longevity_associations - Contains genetic variants associated with longevity
+        The OpenGenes database contains aging and lifespan research data across 4 tables:
+        - lifespan_change: Experimental data on gene modifications and lifespan effects
+        - gene_criteria: Aging-related criteria classifications for genes  
+        - gene_hallmarks: Links genes to hallmarks of aging (multi-value field)
+        - longevity_associations: Population genetics data on gene variants and longevity
         
-        The database schema includes:
-        - lifespan_change: HGNC, model_organism, sex, effect_on_lifespan, intervention details, lifespan measurements, etc.
-        - gene_criteria: HGNC, criteria (12 different aging-related criteria)
-        - gene_hallmarks: HGNC, hallmarks of aging 
-        - longevity_associations: HGNC, polymorphism details, ethnicity, study type, etc.
+        All tables are linked by HGNC gene symbols for cross-table analysis.
         
-        IMPORTANT: Only SELECT queries are allowed. No INSERT, UPDATE, DELETE, or DDL operations.
+        CRITICAL REMINDERS:
+        - Use LIKE queries with wildcards for multi-value fields (gene_hallmarks."hallmarks of aging", 
+          lifespan_change.intervention_improves, lifespan_change.intervention_deteriorates)
+        - Order lifespan results by magnitude: DESC for increases, ASC for decreases
+        - IMPORTANT: When user asks about "lifespan effects" without specifying mean vs max, 
+          show both lifespan_percent_change_mean AND lifespan_percent_change_max
+        - Use COALESCE(lifespan_percent_change_mean, lifespan_percent_change_max) for ordering both metrics
+        
+        For detailed schema information, use get_schema_info().
+        For query examples and patterns, use get_example_queries().
         
         Args:
-            sql: The SQL SELECT query to execute
+            sql: The SQL query to execute (database enforces read-only access)
             
         Returns:
             QueryResult: Contains the query results, row count, and executed query
-            
-        Example queries:
-        - SELECT HGNC, effect_on_lifespan FROM lifespan_change WHERE model_organism = 'mouse' LIMIT 10
-        - SELECT DISTINCT criteria FROM gene_criteria
-        - SELECT HGNC, COUNT(*) as experiments FROM lifespan_change GROUP BY HGNC ORDER BY experiments DESC LIMIT 20
         """
         with start_action(action_type="db_query_tool", sql=sql) as action:
             result = self.db_manager.execute_query(sql)
@@ -147,10 +229,11 @@ class OpenGenesTools(FastMCP):
 
     def get_schema_info(self) -> Dict[str, Any]:
         """
-        Get information about the database schema including table names, column names, and enumerations.
+        Get comprehensive information about the OpenGenes database schema including table structures, 
+        column descriptions, enumerations, and critical query guidelines.
         
         Returns:
-            Dict containing table schemas, column information, and available enumerations
+            Dict containing detailed table schemas, column information, query guidelines, and available enumerations
         """
         with start_action(action_type="get_schema_info") as action:
             # Get table information
@@ -161,28 +244,147 @@ class OpenGenesTools(FastMCP):
             action.add_success_fields(tables_found=len(table_names), table_names=table_names)
             
             schema_info = {
+                "database_overview": {
+                    "description": "OpenGenes database contains aging and lifespan research data with 4 main tables linked by HGNC gene symbols",
+                    "total_tables": len(table_names),
+                    "primary_key": "HGNC (gene symbol) - links all tables together"
+                },
+                "critical_query_guidelines": {
+                    "multi_value_fields": {
+                        "description": "Some columns contain comma-separated values. ALWAYS use LIKE queries with wildcards for these fields.",
+                        "fields": [
+                            "gene_hallmarks.'hallmarks of aging' - contains multiple aging hallmarks per gene",
+                            "lifespan_change.intervention_deteriorates - multiple biological processes that deteriorate",
+                            "lifespan_change.intervention_improves - multiple biological processes that improve"
+                        ],
+                        "example_syntax": "WHERE \"hallmarks of aging\" LIKE '%stem cell exhaustion%'"
+                    },
+                    "lifespan_metrics": {
+                        "description": "Database contains both mean and maximum lifespan change metrics. When user asks about lifespan effects without specifying, show both.",
+                        "mean_vs_max": "lifespan_percent_change_mean shows average effect, lifespan_percent_change_max shows maximum observed effect",
+                        "when_to_show_both": "If user asks about 'lifespan effects' or 'lifespan changes' without specifying mean vs max, include both metrics",
+                        "ordering_both": "Use COALESCE(lifespan_percent_change_mean, lifespan_percent_change_max) for ordering when showing both",
+                        "significance": "Both mean and max have corresponding significance columns (significance_mean, significance_max)"
+                    },
+                    "result_ordering": {
+                        "lifespan_extension": "ORDER BY lifespan_percent_change_mean DESC (highest increase first)",
+                        "lifespan_reduction": "ORDER BY lifespan_percent_change_mean ASC (largest decrease first)",
+                        "importance": "Always order lifespan results by magnitude of effect for relevance",
+                        "both_metrics": "When showing both mean and max, use COALESCE for ordering or show comparison"
+                    },
+                    "gene_queries": "Use HGNC column for gene symbols (TP53, FOXO3, etc.)",
+                    "safety": "Only SELECT queries allowed - no INSERT, UPDATE, DELETE, or DDL operations"
+                },
                 "tables": {},
-                "enumerations": {}
+                "enumerations": {},
+                "biological_processes_tags": [
+                    "cardiovascular system", "nervous system", "immune function", "muscle, bone, skin, liver",
+                    "renal function, reproductive function", "cognitive function, eyesight, hair/coat",
+                    "body composition", "glucose metabolism, lipid metabolism, cholesterol metabolism",
+                    "insulin sensitivity", "oxidation/antioxidant function, mitochondrial function",
+                    "DNA metabolism, carcinogenesis, apoptosis", "senescence, inflammation, stress responce",
+                    "autophagy, proliferation, locomotor function", "tissue regeneration, stem and progenitor cells",
+                    "blood, proteostasis, angiogenesis, metabolism", "endocrine system, intercellular matrix",
+                    "building and protection of telomeres", "cytoskeleton organization, nucleus structure",
+                    "skin and the intestine epithelial barriers function", "calcium homeostasis, proteolysis"
+                ],
+                "aging_hallmarks_tags": [
+                    "nuclear DNA instability", "telomere attrition", "alterations in histone modifications",
+                    "chromatin remodeling", "transcriptional alterations", "alterations in DNA methylation",
+                    "degradation of proteolytic systems", "TOR pathway dysregulation", "INS/IGF-1 pathway dysregulation",
+                    "AMPK pathway dysregulation", "SIRT pathway dysregulation", "impairment of the mitochondrial integrity and biogenesis",
+                    "mitochondrial DNA instability", "accumulation of reactive oxygen species", "senescent cells accumulation",
+                    "stem cell exhaustion", "sterile inflammation", "intercellular communication impairment",
+                    "changes in the extracellular matrix structure", "impairment of proteins folding and stability",
+                    "nuclear architecture impairment", "disabled macroautophagy"
+                ]
             }
             
-            # Get column information for each table
+            # Get detailed column information for each table with descriptions
+            table_descriptions = {
+                "lifespan_change": {
+                    "purpose": "Experimental data on how gene modifications affect lifespan in various model organisms",
+                    "key_columns": "HGNC, model_organism, effect_on_lifespan, intervention methods, lifespan measurements",
+                    "use_cases": "Questions about gene effects on lifespan, experimental conditions, organism studies",
+                    "special_notes": "Contains multi-value fields for intervention effects. Use LIKE queries for intervention_deteriorates and intervention_improves columns."
+                },
+                "gene_criteria": {
+                    "purpose": "Aging-related criteria that genes meet (12 different categories)",
+                    "key_columns": "HGNC, criteria",
+                    "use_cases": "Questions about why genes are considered aging-related",
+                    "special_notes": "Links genes to specific aging research criteria classifications"
+                },
+                "gene_hallmarks": {
+                    "purpose": "Links genes to hallmarks of aging",
+                    "key_columns": "HGNC, hallmarks of aging (multi-value field)",
+                    "use_cases": "Questions about which aging hallmarks genes are involved in",
+                    "special_notes": "CRITICAL: 'hallmarks of aging' column contains comma-separated values. Always use LIKE queries with wildcards."
+                },
+                "longevity_associations": {
+                    "purpose": "Population genetics data on gene variants associated with longevity",
+                    "key_columns": "HGNC, polymorphism data, ethnicity, study type",
+                    "use_cases": "Questions about genetic variants associated with longevity in human populations",
+                    "special_notes": "Contains SNPs, indels, and other genetic variations from population studies"
+                }
+            }
+            
             for table_name in table_names:
                 pragma_query = f"PRAGMA table_info({table_name})"
                 columns_result = self.db_manager.execute_query(pragma_query)
                 
+                # Add detailed column descriptions for lifespan_change table
+                column_descriptions = {}
+                if table_name == "lifespan_change":
+                    column_descriptions = {
+                        "HGNC": "Gene symbol (standard gene names like TP53, FOXO3)",
+                        "model_organism": "Organism used for experiment (mouse, C. elegans, fly, etc.)",
+                        "sex": "Sex of organism used (male, female, all, hermaphrodites, etc.)",
+                        "effect_on_lifespan": "Direction of lifespan change (increases/decreases/no change)",
+                        "lifespan_percent_change_mean": "Mean percent change in lifespan (average effect across cohort - use for ordering results)",
+                        "lifespan_percent_change_max": "Maximum percent change in lifespan (best individual response - show both mean and max when user asks about lifespan effects)",
+                        "lifespan_percent_change_median": "Median percent change in lifespan",
+                        "intervention_deteriorates": "MULTI-VALUE: Biological processes that deteriorated (use LIKE queries)",
+                        "intervention_improves": "MULTI-VALUE: Biological processes that improved (use LIKE queries)",
+                        "intervention_method": "Method used to modify gene (knockout, overexpression, etc.)",
+                        "main_effect_on_lifespan": "Type of gene activity change (gain/loss/switch of function)",
+                        "significance_mean": "Statistical significance of mean lifespan change (1=significant, 0=not significant)",
+                        "significance_max": "Statistical significance of maximum lifespan change (1=significant, 0=not significant)",
+                        "control_lifespan_mean": "Mean lifespan of control group",
+                        "experiment_lifespan_mean": "Mean lifespan of experimental group"
+                    }
+                elif table_name == "gene_hallmarks":
+                    column_descriptions = {
+                        "HGNC": "Gene symbol (standard gene names like TP53, FOXO3)",
+                        "hallmarks of aging": "MULTI-VALUE: Comma-separated aging hallmarks (ALWAYS use LIKE queries with wildcards)"
+                    }
+                elif table_name == "gene_criteria":
+                    column_descriptions = {
+                        "HGNC": "Gene symbol (standard gene names like TP53, FOXO3)",
+                        "criteria": "Aging-related criteria the gene meets (12 different categories)"
+                    }
+                elif table_name == "longevity_associations":
+                    column_descriptions = {
+                        "HGNC": "Gene symbol (standard gene names like TP53, FOXO3)",
+                        "polymorphism type": "Type of genetic variant (SNP, In/Del, VNTR, etc.)",
+                        "ethnicity": "Ethnicity of study participants",
+                        "study type": "Type of population study (GWAS, candidate genes, meta-analysis, etc.)"
+                    }
+                
                 schema_info["tables"][table_name] = {
+                    "description": table_descriptions.get(table_name, {}),
                     "columns": [
                         {
                             "name": col["name"],
                             "type": col["type"],
                             "nullable": not col["notnull"],
-                            "primary_key": bool(col["pk"])
+                            "primary_key": bool(col["pk"]),
+                            "description": column_descriptions.get(col["name"], "")
                         }
                         for col in columns_result.rows
                     ]
                 }
             
-            # Add known enumerations from the prompt
+            # Add comprehensive enumerations
             schema_info["enumerations"] = self._get_known_enumerations()
             
             action.add_success_fields(schema_retrieved=True, total_tables=len(table_names))
@@ -190,91 +392,300 @@ class OpenGenesTools(FastMCP):
 
     def get_example_queries(self) -> List[Dict[str, str]]:
         """
-        Get a list of example SQL queries that can be used with the OpenGenes database.
+        Get comprehensive example SQL queries with patterns and best practices for the OpenGenes database.
+        
+        Includes examples for:
+        - Multi-value field queries (LIKE with wildcards)
+        - Proper result ordering by effect magnitude
+        - Cross-table joins and analysis
+        - Common research questions and patterns
         
         Returns:
-            List of dictionaries containing example queries with descriptions
+            List of dictionaries containing example queries with descriptions and categories
         """
         examples = [
+            # Basic gene and lifespan queries with proper ordering
             {
-                "description": "Get top 10 genes with most lifespan experiments",
-                "query": "SELECT HGNC, COUNT(*) as experiment_count FROM lifespan_change WHERE HGNC IS NOT NULL GROUP BY HGNC ORDER BY experiment_count DESC LIMIT 10"
+                "category": "Lifespan Effects - Ordered by Magnitude",
+                "description": "Genes that increase lifespan, ordered by greatest extension first",
+                "query": "SELECT HGNC, model_organism, effect_on_lifespan, lifespan_percent_change_mean FROM lifespan_change WHERE effect_on_lifespan = 'increases lifespan' AND lifespan_percent_change_mean IS NOT NULL ORDER BY lifespan_percent_change_mean DESC LIMIT 20",
+                "key_concept": "Always order lifespan results by magnitude for relevance"
             },
             {
-                "description": "Find genes that increase lifespan in mice",
-                "query": "SELECT DISTINCT HGNC, effect_on_lifespan FROM lifespan_change WHERE model_organism = 'mouse' AND effect_on_lifespan = 'increases lifespan' AND HGNC IS NOT NULL"
+                "category": "Lifespan Effects - Ordered by Magnitude", 
+                "description": "Genes that decrease lifespan, ordered by greatest reduction first",
+                "query": "SELECT HGNC, model_organism, effect_on_lifespan, lifespan_percent_change_mean FROM lifespan_change WHERE effect_on_lifespan = 'decreases lifespan' AND lifespan_percent_change_mean IS NOT NULL ORDER BY lifespan_percent_change_mean ASC LIMIT 20",
+                "key_concept": "Use ASC ordering for lifespan reductions to show largest decreases first"
             },
             {
-                "description": "Get all criteria for a specific gene (e.g., TP53)",
-                "query": "SELECT criteria FROM gene_criteria WHERE HGNC = 'TP53'"
+                "category": "Lifespan Effects - Mean vs Maximum",
+                "description": "Show both mean and maximum lifespan changes when user asks about lifespan effects",
+                "query": "SELECT HGNC, model_organism, effect_on_lifespan, lifespan_percent_change_mean, lifespan_percent_change_max, significance_mean, significance_max FROM lifespan_change WHERE effect_on_lifespan = 'increases lifespan' AND (lifespan_percent_change_mean IS NOT NULL OR lifespan_percent_change_max IS NOT NULL) ORDER BY COALESCE(lifespan_percent_change_mean, lifespan_percent_change_max) DESC LIMIT 15",
+                "key_concept": "IMPORTANT: When user asks about lifespan effects without specifying mean vs max, show both metrics. Researchers may be interested in either average effects or maximum potential."
             },
             {
-                "description": "Find genes associated with specific hallmarks of aging",
-                "query": "SELECT HGNC, \"hallmarks of aging\" FROM gene_hallmarks WHERE \"hallmarks of aging\" LIKE '%mitochondrial%'"
+                "category": "Lifespan Effects - Mean vs Maximum",
+                "description": "Compare mean vs maximum lifespan changes for the same interventions",
+                "query": "SELECT HGNC, model_organism, lifespan_percent_change_mean, lifespan_percent_change_max, (lifespan_percent_change_max - lifespan_percent_change_mean) as max_vs_mean_diff FROM lifespan_change WHERE lifespan_percent_change_mean IS NOT NULL AND lifespan_percent_change_max IS NOT NULL AND effect_on_lifespan = 'increases lifespan' ORDER BY max_vs_mean_diff DESC LIMIT 15",
+                "key_concept": "Show the difference between maximum and mean effects to highlight variability in responses"
+            },
+            
+            # Multi-value field queries (CRITICAL pattern)
+            {
+                "category": "Multi-Value Fields - LIKE Queries",
+                "description": "Find genes associated with stem cell exhaustion hallmark",
+                "query": "SELECT HGNC, \"hallmarks of aging\" FROM gene_hallmarks WHERE \"hallmarks of aging\" LIKE '%stem cell exhaustion%'",
+                "key_concept": "CRITICAL: Always use LIKE with wildcards for multi-value fields"
             },
             {
-                "description": "Get longevity associations for specific ethnicity",
-                "query": "SELECT HGNC, \"polymorphism type\", \"nucleotide substitution\", ethnicity FROM longevity_associations WHERE ethnicity LIKE '%Italian%'"
+                "category": "Multi-Value Fields - LIKE Queries",
+                "description": "Find interventions that improve cardiovascular system",
+                "query": "SELECT HGNC, intervention_improves, effect_on_lifespan, lifespan_percent_change_mean FROM lifespan_change WHERE intervention_improves LIKE '%cardiovascular system%' ORDER BY lifespan_percent_change_mean DESC",
+                "key_concept": "Use LIKE queries for intervention_improves and intervention_deteriorates columns"
             },
             {
-                "description": "Count experiments by model organism",
-                "query": "SELECT model_organism, COUNT(*) as count FROM lifespan_change GROUP BY model_organism ORDER BY count DESC"
+                "category": "Multi-Value Fields - LIKE Queries",
+                "description": "Find genes affecting mitochondrial function",
+                "query": "SELECT HGNC, \"hallmarks of aging\" FROM gene_hallmarks WHERE \"hallmarks of aging\" LIKE '%mitochondrial%'",
+                "key_concept": "Multi-value hallmarks field requires LIKE pattern matching"
+            },
+            
+            # Cross-table analysis
+            {
+                "category": "Cross-Table Analysis",
+                "description": "Genes with both experimental lifespan effects and population longevity associations",
+                "query": "SELECT DISTINCT lc.HGNC, lc.effect_on_lifespan, lc.model_organism, la.ethnicity, la.\"study type\" FROM lifespan_change lc INNER JOIN longevity_associations la ON lc.HGNC = la.HGNC WHERE lc.effect_on_lifespan = 'increases lifespan'",
+                "key_concept": "Join tables using HGNC to combine experimental and population data"
             },
             {
-                "description": "Find genes with both lifespan effects and longevity associations",
-                "query": "SELECT DISTINCT lc.HGNC FROM lifespan_change lc INNER JOIN longevity_associations la ON lc.HGNC = la.HGNC WHERE lc.HGNC IS NOT NULL"
+                "category": "Cross-Table Analysis",
+                "description": "Genes with lifespan effects and their aging criteria",
+                "query": "SELECT lc.HGNC, lc.effect_on_lifespan, lc.lifespan_percent_change_mean, gc.criteria FROM lifespan_change lc INNER JOIN gene_criteria gc ON lc.HGNC = gc.HGNC WHERE lc.lifespan_percent_change_mean > 20 ORDER BY lc.lifespan_percent_change_mean DESC",
+                "key_concept": "Combine lifespan data with criteria to understand gene classifications"
+            },
+            
+            # Organism-specific patterns
+            {
+                "category": "Model Organism Studies",
+                "description": "Compare gene effects across mammals vs non-mammals",
+                "query": "SELECT HGNC, model_organism, effect_on_lifespan, lifespan_percent_change_mean FROM lifespan_change WHERE HGNC IN (SELECT HGNC FROM lifespan_change WHERE model_organism IN ('mouse', 'rat', 'rabbit', 'hamster')) AND HGNC IN (SELECT HGNC FROM lifespan_change WHERE model_organism IN ('roundworm Caenorhabditis elegans', 'fly Drosophila melanogaster', 'yeasts')) ORDER BY HGNC, model_organism",
+                "key_concept": "Use subqueries to find genes studied in multiple organism types"
             },
             {
-                "description": "Get genes with specific intervention methods",
-                "query": "SELECT DISTINCT HGNC, intervention_method FROM lifespan_change WHERE intervention_method = 'gene knockout' AND HGNC IS NOT NULL"
+                "category": "Model Organism Studies",
+                "description": "Mouse studies with significant lifespan changes (both mean and max)",
+                "query": "SELECT HGNC, effect_on_lifespan, lifespan_percent_change_mean, lifespan_percent_change_max, significance_mean, significance_max FROM lifespan_change WHERE model_organism = 'mouse' AND (significance_mean = 1 OR significance_max = 1) AND (lifespan_percent_change_mean IS NOT NULL OR lifespan_percent_change_max IS NOT NULL) ORDER BY COALESCE(ABS(lifespan_percent_change_mean), ABS(lifespan_percent_change_max)) DESC",
+                "key_concept": "Filter by significance and show both mean and max when available, order by absolute change magnitude"
+            },
+            
+            # Intervention and method analysis
+            {
+                "category": "Intervention Methods",
+                "description": "Compare knockout vs overexpression effects on both mean and maximum lifespan",
+                "query": "SELECT intervention_method, effect_on_lifespan, COUNT(*) as count, AVG(lifespan_percent_change_mean) as avg_mean_change, AVG(lifespan_percent_change_max) as avg_max_change FROM lifespan_change WHERE intervention_method IN ('gene knockout', 'additional copies of a gene in the genome') AND (lifespan_percent_change_mean IS NOT NULL OR lifespan_percent_change_max IS NOT NULL) GROUP BY intervention_method, effect_on_lifespan ORDER BY intervention_method, avg_mean_change DESC",
+                "key_concept": "Group by intervention method and show both mean and maximum lifespan metrics to compare approaches comprehensively"
+            },
+            
+            # Population genetics patterns
+            {
+                "category": "Population Genetics",
+                "description": "Longevity associations by ethnicity and study type",
+                "query": "SELECT ethnicity, \"study type\", COUNT(*) as association_count FROM longevity_associations WHERE ethnicity != 'n/a' GROUP BY ethnicity, \"study type\" ORDER BY association_count DESC",
+                "key_concept": "Analyze population genetics patterns across ethnicities"
             },
             {
-                "description": "Find genes that affect both mammals and non-mammals",
-                "query": """SELECT DISTINCT HGNC 
-                           FROM lifespan_change 
-                           WHERE HGNC IN (
-                               SELECT HGNC FROM lifespan_change WHERE model_organism IN ('mouse', 'rat', 'rabbit', 'hamster')
-                           ) AND HGNC IN (
-                               SELECT HGNC FROM lifespan_change WHERE model_organism IN ('roundworm Caenorhabditis elegans', 'fly Drosophila melanogaster', 'yeasts')
-                           )"""
+                "category": "Population Genetics",
+                "description": "SNP associations with specific genes",
+                "query": "SELECT HGNC, \"polymorphism type\", \"nucleotide substitution\", ethnicity FROM longevity_associations WHERE \"polymorphism type\" = 'SNP' AND HGNC IN ('APOE', 'FOXO3', 'SIRT1') ORDER BY HGNC",
+                "key_concept": "Focus on specific polymorphism types and well-known longevity genes"
+            },
+            
+            # Summary and statistical queries
+            {
+                "category": "Summary Statistics",
+                "description": "Top genes by number of experiments across all organisms",
+                "query": "SELECT HGNC, COUNT(*) as experiment_count, COUNT(DISTINCT model_organism) as organism_count FROM lifespan_change WHERE HGNC IS NOT NULL GROUP BY HGNC ORDER BY experiment_count DESC LIMIT 15",
+                "key_concept": "Count experiments and organisms per gene for research breadth"
             },
             {
-                "description": "Get summary statistics for lifespan changes",
-                "query": "SELECT effect_on_lifespan, COUNT(*) as count, AVG(lifespan_percent_change_mean) as avg_change FROM lifespan_change WHERE lifespan_percent_change_mean IS NOT NULL GROUP BY effect_on_lifespan"
+                "category": "Summary Statistics",
+                "description": "Distribution of lifespan effects by organism (including both mean and max metrics)",
+                "query": "SELECT model_organism, effect_on_lifespan, COUNT(*) as count, AVG(lifespan_percent_change_mean) as avg_mean_change, AVG(lifespan_percent_change_max) as avg_max_change, COUNT(CASE WHEN lifespan_percent_change_mean IS NOT NULL THEN 1 END) as mean_data_points, COUNT(CASE WHEN lifespan_percent_change_max IS NOT NULL THEN 1 END) as max_data_points FROM lifespan_change GROUP BY model_organism, effect_on_lifespan ORDER BY model_organism, count DESC",
+                "key_concept": "Analyze effect distributions across model organisms with both metrics and data availability counts"
+            },
+            
+            # Advanced pattern examples
+            {
+                "category": "Advanced Patterns",
+                "description": "Genes with multiple aging hallmarks (complex multi-value query)",
+                "query": "SELECT HGNC, \"hallmarks of aging\", (LENGTH(\"hallmarks of aging\") - LENGTH(REPLACE(\"hallmarks of aging\", ',', '')) + 1) as hallmark_count FROM gene_hallmarks WHERE hallmark_count > 3 ORDER BY hallmark_count DESC",
+                "key_concept": "Count comma-separated values in multi-value fields"
+            },
+            {
+                "category": "Advanced Patterns",
+                "description": "Genes affecting both lifespan and specific biological processes",
+                "query": "SELECT lc.HGNC, lc.effect_on_lifespan, lc.lifespan_percent_change_mean, lc.intervention_improves FROM lifespan_change lc WHERE lc.intervention_improves LIKE '%cardiovascular system%' AND lc.intervention_improves LIKE '%cognitive function%' ORDER BY lc.lifespan_percent_change_mean DESC",
+                "key_concept": "Use multiple LIKE conditions to find genes affecting multiple systems"
             }
         ]
         
         return examples
 
     def _get_known_enumerations(self) -> Dict[str, Dict[str, List[str]]]:
-        """Get the known enumerations for database fields."""
+        """Get comprehensive enumerations for database fields from the OpenGenes database."""
         return {
             "lifespan_change": {
-                "model_organism": ["mouse", "roundworm Caenorhabditis elegans", "fly Drosophila melanogaster", "rabbit", "rat", "acyrthosiphon pisum", "yeasts", "fish Nothobranchius furzeri", "fungus Podospora anserina", "hamster", "zebrafish", "fish Nothobranchius guentheri"],
+                "model_organism": [
+                    "mouse", "roundworm Caenorhabditis elegans", "fly Drosophila melanogaster", 
+                    "rabbit", "rat", "acyrthosiphon pisum", "yeasts", "fish Nothobranchius furzeri", 
+                    "fungus Podospora anserina", "hamster", "zebrafish", "fish Nothobranchius guentheri"
+                ],
                 "sex": ["male", "female", "all", "hermaphrodites", "not specified", "None"],
-                "effect_on_lifespan": ["increases lifespan", "no change", "decreases lifespan", "increases lifespan in animals with decreased lifespans", "decreases survival under stress conditions", "improves survival under stress conditions", "decreases life span in animals with increased lifespans", "no change under stress conditions"],
+                "effect_on_lifespan": [
+                    "increases lifespan", "no change", "decreases lifespan", 
+                    "increases lifespan in animals with decreased lifespans", 
+                    "decreases survival under stress conditions", 
+                    "improves survival under stress conditions", 
+                    "decreases life span in animals with increased lifespans", 
+                    "no change under stress conditions"
+                ],
                 "main_effect_on_lifespan": ["loss of function", "switch of function", "gain of function"],
-                "intervention_way": ["changes in genome level", "combined (inducible mutation)", "interventions by selective drug/RNAi"],
-                "intervention_method": ["gene knockout", "gene modification to affect product activity/stability", "gene modification", "additional copies of a gene in the genome", "addition to the genome of a dominant-negative gene variant that reduces the activity of an endogenous protein", "treatment with vector with additional gene copies", "gene modification to reduce protein activity/stability", "interfering RNA transgene", "RNA interferention", "gene modification to increase protein activity/stability", "introduction into the genome of a construct under the control of a gene promoter, which causes death or a decrease in the viability of cells expressing the gene", "knockout of gene isoform", "tissue-specific gene knockout", "reduced expression of one of the isoforms in transgenic animals", "gene modification to reduce gene expression", "treatment with gene product inducer", "None", "tissue-specific gene overexpression", "additional copies of a gene in transgenic animals", "treatment with a gene product inhibitor", "treatment with protein", "gene modification to increase gene expression", "removal of cells expressing the gene", "splicing modification"]
+                "intervention_way": [
+                    "changes in genome level", "combined (inducible mutation)", 
+                    "interventions by selective drug/RNAi"
+                ],
+                "intervention_method": [
+                    "gene knockout", "gene modification to affect product activity/stability", 
+                    "gene modification", "additional copies of a gene in the genome", 
+                    "addition to the genome of a dominant-negative gene variant that reduces the activity of an endogenous protein", 
+                    "treatment with vector with additional gene copies", 
+                    "gene modification to reduce protein activity/stability", 
+                    "interfering RNA transgene", "RNA interferention", 
+                    "gene modification to increase protein activity/stability", 
+                    "introduction into the genome of a construct under the control of a gene promoter, which causes death or a decrease in the viability of cells expressing the gene", 
+                    "knockout of gene isoform", "tissue-specific gene knockout", 
+                    "reduced expression of one of the isoforms in transgenic animals", 
+                    "gene modification to reduce gene expression", "treatment with gene product inducer", 
+                    "None", "tissue-specific gene overexpression", 
+                    "additional copies of a gene in transgenic animals", 
+                    "treatment with a gene product inhibitor", "treatment with protein", 
+                    "gene modification to increase gene expression", "removal of cells expressing the gene", 
+                    "splicing modification"
+                ],
+                "diet": [
+                    "standard chow", "None", "Purina Lab Diet 5001, ad libitum", 
+                    "Purina Lab Diet 5001, from birth to 12 weeks ad. lib., then 40% from ad. lib.", 
+                    "Teklad LM485 Diet, ad libitum", "Teklad 2018S Diet, ad libitum", 
+                    "E. coli OP50, NGM", "96W chow ad.lib.", "calorie-restricted diet", 
+                    "2% yeast, 10% sucrose, 5% cornmeal", "2% yeasts, 10% sucrose, 5% cornmeal", 
+                    "high-calorie food, 15% dextrose, 15% yeast, 2% agar", 
+                    "low-calorie food, 5% dextrose, 5% yeast, 2% agar", "ad libitum", 
+                    "agar, corn meal, yeast and molasses", "E. coli HT115 L4440, NGM"
+                ],
+                "tissue": [
+                    "None", "muscle", "neurons", "fat body", "dopaminergic neurons", "glia", 
+                    "brain", "corpora cardiaca", "insulin-producing cells", "central nervous system", 
+                    "intestine", "liver", "heart", "myeloid cells", "intestinal stem cells and enteroblasts", 
+                    "adipose tissue", "melanocytes,Trp2 expressing neurons", "cardiomyocytes", 
+                    "hepatocytes", "heart,skeletal muscles", "heart,brain,skeletal muscles", 
+                    "skin", "eye", "connective tissue", "cholinergic neurons", "kidney,brain", 
+                    "kidney,heart,brain", "neurolemma", "hypodermis", "mediobasal hypothalamus", 
+                    "motor neurons", "median neurosecretory cells", 
+                    "hypocretin expressing neurons in the hypothalamus", "body wall muscles", 
+                    "pharynx", "digestive tract", "abdominal fat and the digestive tract", 
+                    "skeletal muscles", "white adipose tissue"
+                ],
+                "drug": [
+                    "None", "tamoxifen", "mifepristone RU486", "AAV9-mTERT", "MCMV-TERT", 
+                    "interfering RNA expressing bacteries", "auxin", "heat shock", "heat pulse", 
+                    "Ex8[Pcdc-48.1::cdc-48.1]", "tetracycline", "EUK-008", "EUK-134", 
+                    "interfering RNA expressing bacteries 1:1000", "interfering RNA expressing bacteries 1:50", 
+                    "interfering RNA expressing bacteries 1:10", "DL-beta-hydroxybutyrate", 
+                    "DL-beta-hydroxybutyrate + sodium butirate", "lentiviruses, expressing DN-IkB-a", 
+                    "rapamycin", "AP20187", "quinic acid", "Cdc42 activity-specific inhibitor", 
+                    "Rosizlitazone", "lentiviruses expressing constitutively active IKK-betta", 
+                    "Ex008[SKN-1 S393A::GFP]", "captopril", "Recombinant mouse serum albumin rMSA", 
+                    "doxycycline", "Ethanol", "interferring RNA", "MCMV-FST"
+                ]
             },
             "gene_criteria": {
-                "criteria": ["Age-related changes in gene expression, methylation or protein activity", "Age-related changes in gene expression, methylation or protein activity in humans", "Association of genetic variants and gene expression levels with longevity", "Regulation of genes associated with aging", "Changes in gene activity extend non-mammalian lifespan", "Changes in gene activity protect against age-related impairment", "Age-related changes in gene expression, methylation or protein activity in non-mammals", "Changes in gene activity extend mammalian lifespan", "Changes in gene activity reduce mammalian lifespan", "Changes in gene activity enhance age-related deterioration", "Changes in gene activity reduce non-mammalian lifespan", "Association of the gene with accelerated aging in humans"]
+                "criteria": [
+                    "Age-related changes in gene expression, methylation or protein activity", 
+                    "Age-related changes in gene expression, methylation or protein activity in humans", 
+                    "Association of genetic variants and gene expression levels with longevity", 
+                    "Regulation of genes associated with aging", 
+                    "Changes in gene activity extend non-mammalian lifespan", 
+                    "Changes in gene activity protect against age-related impairment", 
+                    "Age-related changes in gene expression, methylation or protein activity in non-mammals", 
+                    "Changes in gene activity extend mammalian lifespan", 
+                    "Changes in gene activity reduce mammalian lifespan", 
+                    "Changes in gene activity enhance age-related deterioration", 
+                    "Changes in gene activity reduce non-mammalian lifespan", 
+                    "Association of the gene with accelerated aging in humans"
+                ]
+            },
+            "gene_hallmarks": {
+                "hallmarks_of_aging_note": "This is a multi-value field containing comma-separated values. Always use LIKE queries with wildcards.",
+                "available_hallmarks": [
+                    "nuclear DNA instability", "telomere attrition", "alterations in histone modifications",
+                    "chromatin remodeling", "transcriptional alterations", "alterations in DNA methylation",
+                    "degradation of proteolytic systems", "TOR pathway dysregulation", 
+                    "INS/IGF-1 pathway dysregulation", "AMPK pathway dysregulation", 
+                    "SIRT pathway dysregulation", "impairment of the mitochondrial integrity and biogenesis",
+                    "mitochondrial DNA instability", "accumulation of reactive oxygen species", 
+                    "senescent cells accumulation", "stem cell exhaustion", "sterile inflammation", 
+                    "intercellular communication impairment", "changes in the extracellular matrix structure", 
+                    "impairment of proteins folding and stability", "nuclear architecture impairment", 
+                    "disabled macroautophagy"
+                ]
             },
             "longevity_associations": {
                 "polymorphism_type": ["SNP", "In/Del", "n/a", "haplotype", "VNTR", "PCR-RFLP"],
-                "ethnicity": ["Caucasian, American", "European", "Greek", "Ashkenazi Jewish", "Polish", "Chinese", "Caucasian", "Italian", "Japanese", "Danish", "Spanish", "German", "European, East Asian, African American", "n/a", "Chinese, Han", "Italian, Southern", "German, American", "Caucasian, African-American", "East Asian, Europeans, Caucasian American", "Japanese American", "Italian, Calabrian", "Korean", "Belarusian", "mixed", "Caucasian, Ashkenazi Jewish", "Dutch", "Amish", "French", "Ashkenazi Jewish, Amish, Caucasian", "Japanese, Okinawan", "North-eastern Italian", "Tatars", "American, Caucasians; Italian, Southern; French; Ashkenazi Jewish", "Chinese, Bama Yao, Guangxi Province", "Swiss", "German, Danes, French", "American, Caucasian", "Italian, Central", "Finnish"],
-                "study_type": ["GWAS", "iGWAS", "candidate genes study", "gene-based association approach", "family study", "single-variant association approach", "meta-analysis of GWAS, replication of previous findings", "meta-analysis of GWAS", "GWAS, discovery + replication", "GWAS, replication", "meta-analysis of GWAS, replication", "n/a", "meta-analysis of candidate gene studies", "immunochip, discovery + replication", "immunochip"],
+                "ethnicity": [
+                    "Caucasian, American", "European", "Greek", "Ashkenazi Jewish", "Polish", 
+                    "Chinese", "Caucasian", "Italian", "Japanese", "Danish", "Spanish", "German", 
+                    "European, East Asian, African American", "n/a", "Chinese, Han", "Italian, Southern", 
+                    "German, American", "Caucasian, African-American", "East Asian, Europeans, Caucasian American", 
+                    "Japanese American", "Italian, Calabrian", "Korean", "Belarusian", "mixed", 
+                    "Caucasian, Ashkenazi Jewish", "Dutch", "Amish", "French", 
+                    "Ashkenazi Jewish, Amish, Caucasian", "Japanese, Okinawan", "North-eastern Italian", 
+                    "Tatars", "American, Caucasians; Italian, Southern; French; Ashkenazi Jewish", 
+                    "Chinese, Bama Yao, Guangxi Province", "Swiss", "German, Danes, French", 
+                    "American, Caucasian", "Italian, Central", "Finnish"
+                ],
+                "study type": [
+                    "GWAS", "iGWAS", "candidate genes study", "gene-based association approach", 
+                    "family study", "single-variant association approach", 
+                    "meta-analysis of GWAS, replication of previous findings", "meta-analysis of GWAS", 
+                    "GWAS, discovery + replication", "GWAS, replication", "meta-analysis of GWAS, replication", 
+                    "n/a", "meta-analysis of candidate gene studies", "immunochip, discovery + replication", 
+                    "immunochip"
+                ],
                 "sex": ["all", "male", "not specified", "female"]
+            },
+            "biological_processes_for_intervention_effects": {
+                "note": "These tags are used in intervention_deteriorates and intervention_improves columns (multi-value fields)",
+                "processes": [
+                    "cardiovascular system", "nervous system", "immune function", "muscle, bone, skin, liver",
+                    "renal function, reproductive function", "cognitive function, eyesight, hair/coat",
+                    "body composition", "glucose metabolism, lipid metabolism, cholesterol metabolism",
+                    "insulin sensitivity", "oxidation/antioxidant function, mitochondrial function",
+                    "DNA metabolism, carcinogenesis, apoptosis", "senescence, inflammation, stress responce",
+                    "autophagy, proliferation, locomotor function", "tissue regeneration, stem and progenitor cells",
+                    "blood, proteostasis, angiogenesis, metabolism", "endocrine system, intercellular matrix",
+                    "building and protection of telomeres", "cytoskeleton organization, nucleus structure",
+                    "skin and the intestine epithelial barriers function", "calcium homeostasis, proteolysis"
+                ]
             }
         }
 
 # Initialize the OpenGenes MCP server (which inherits from FastMCP)
-mcp = OpenGenesTools()
+mcp = OpenGenesMCP()
 
 # CLI functions
 def cli_app():
     """Run the MCP server."""
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", host=DEFAULT_HOST, port=DEFAULT_PORT)
 
 def cli_app_stdio():
     """Run the MCP server with stdio transport."""
@@ -282,7 +693,7 @@ def cli_app_stdio():
 
 def cli_app_sse():
     """Run the MCP server with SSE transport.""" 
-    mcp.run(transport="sse")
+    mcp.run(transport="sse", host=DEFAULT_HOST, port=DEFAULT_PORT)
 
 if __name__ == "__main__":
     cli_app()

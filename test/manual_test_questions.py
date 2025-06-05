@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
 
 import typer
+import json
 from dotenv import load_dotenv
 from eliot import start_action, log_call
 from pycomfort.logging import to_nice_file, to_nice_stdout
@@ -12,7 +13,7 @@ from pycomfort.logging import to_nice_file, to_nice_stdout
 from just_agents import llm_options
 from just_agents.llm_options import LLMOptions
 from just_agents.base_agent import BaseAgent
-from opengenes_mcp.server import OpenGenesTools
+from opengenes_mcp.server import OpenGenesMCP
 
 app = typer.Typer()
 
@@ -26,7 +27,7 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 @log_call()
-def run_query(prompt_file: Path, query: str, options: LLMOptions = llm_options.GEMINI_2_5_PRO):
+def run_query(prompt_file: Path, query: str, options: LLMOptions = llm_options.GEMINI_2_5_PRO, tell_sql: bool = False):
     load_dotenv(override=True)
 
     # Resolve prompt file path
@@ -35,12 +36,15 @@ def run_query(prompt_file: Path, query: str, options: LLMOptions = llm_options.G
     with system_prompt_path.open("r", encoding="utf-8") as f:
         system_prompt = f.read().strip()
 
+    if tell_sql:
+        system_prompt += "in your response, include the SQL query that you used to answer the question."
+
     # Initialize OpenGenes MCP server
-    opengenes_server = OpenGenesTools()
+    opengenes_server = OpenGenesMCP()
     
     agent = BaseAgent(
         llm_options=options,
-        tools=[opengenes_server.db_query],
+        tools=[opengenes_server.db_query, opengenes_server.get_schema_info, opengenes_server.get_example_queries],
         system_prompt=system_prompt
     )
 
@@ -61,10 +65,24 @@ def test_opengenes():
     to_nice_stdout()
     to_nice_file(LOGS_DIR / "test_opengenes_human.json", LOGS_DIR / "test_opengenes_human.log")
 
+    # Collect question-answer pairs
+    qa_pairs = []
+    
     for query in queries:
         query = query.strip()
         if query:
-            run_query(prompt_file, query)
+            answer = run_query(prompt_file, query, tell_sql=True)
+            qa_pairs.append({
+                "question": query,
+                "answer": answer
+            })
+    
+    # Save question-answer pairs to JSON file
+    qa_json_path = LOGS_DIR / "test_opengenes_qa.json"
+    with qa_json_path.open("w", encoding="utf-8") as f:
+        json.dump(qa_pairs, f, indent=2, ensure_ascii=False)
+    
+    print(f"Question-answer pairs saved to: {qa_json_path}")
 
 if __name__ == "__main__":
     app()

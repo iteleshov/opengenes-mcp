@@ -9,14 +9,14 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from opengenes_mcp.server import OpenGenesTools, QueryResult
+from opengenes_mcp.server import OpenGenesMCP, QueryResult
 
 
 # Global server instance for tests
 @pytest.fixture(scope="session")
 def opengenes_server():
     """Create a single OpenGenesTools instance for all tests."""
-    return OpenGenesTools()
+    return OpenGenesMCP()
 
 
 class TestPromptQueryValidation:

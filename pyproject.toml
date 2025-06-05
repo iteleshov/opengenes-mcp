@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "eliot>=1.17.5",
     "pycomfort>=0.0.18",
-    "fastmcp>=2.6.1",
+    "fastmcp>=2.7.0",
     "fastapi>=0.115.12",
     "aiosqlite>=0.20.0",
     "sqlite-utils>=3.37"
