@@ -20,15 +20,15 @@ DATA_DIR = PROJECT_ROOT / "data"
 TEST_DIR = PROJECT_ROOT / "test"
 
 # Load judge prompt
-with open(TEST_DIR / "judge_prompt.txt", "r") as f:
+with open(TEST_DIR / "judge_prompt.txt", "r", encoding="utf-8") as f:
     JUDGE_PROMPT = f.read().strip()
 
-# Load system prompt for test agent
-with open(DATA_DIR / "prompt.txt", "r") as f:
-    SYSTEM_PROMPT = f.read().strip() + "\n\nIn your response, include the SQL query that you used to answer the question."
+# Load system prompt for test agent from Hugging Face
+from opengenes_mcp.server import get_prompt_content
+SYSTEM_PROMPT = get_prompt_content().strip() + "\n\nIn your response, include the SQL query that you used to answer the question."
 
 # Load reference Q&A data
-with open(TEST_DIR / "test_qa.json", "r") as f:
+with open(TEST_DIR / "test_qa.json", "r", encoding="utf-8") as f:
     QA_DATA = json.load(f)
 
 # Initialize agents

@@ -8,7 +8,11 @@
 
 MCP (Model Context Protocol) server for OpenGenes database
 
-This server implements the Model Context Protocol (MCP) for OpenGenes, providing a standardized interface for accessing aging and longevity research data. MCP enables AI assistants and agents to query comprehensive biomedical datasets through structured interfaces. The OpenGenes database contains:
+This server implements the Model Context Protocol (MCP) for OpenGenes, providing a standardized interface for accessing aging and longevity research data. MCP enables AI assistants and agents to query comprehensive biomedical datasets through structured interfaces. 
+
+The server automatically downloads the latest OpenGenes database and documentation from [Hugging Face Hub](https://huggingface.co/longevity-genie/bio-mcp-data) (specifically from the `opengenes` folder), ensuring you always have access to the most up-to-date data without manual file management.
+
+The OpenGenes database contains:
 
 - **lifespan_change**: Experimental data about genetic interventions and their effects on lifespan across model organisms
 - **gene_criteria**: Criteria classifications for aging-related genes (12 different categories)  
@@ -25,6 +29,19 @@ MCP is a protocol that bridges the gap between AI systems and specialized domain
 - **Natural Language Queries**: Simplified interaction with specialized databases through SQL
 - **Type Safety**: Strong typing and validation through FastMCP
 - **AI Integration**: Seamless integration with AI assistants and agents
+
+## Data Source and Updates
+
+The OpenGenes MCP server automatically downloads data from the [longevity-genie/bio-mcp-data](https://huggingface.co/longevity-genie/bio-mcp-data) repository on Hugging Face Hub. This ensures:
+
+- **Always Up-to-Date**: Automatic access to the latest OpenGenes database without manual updates
+- **Reliable Distribution**: Centralized data hosting with version control and change tracking
+- **Efficient Caching**: Downloaded files are cached locally to minimize network requests
+- **Fallback Support**: Local fallback files are supported for development and offline use
+
+The data files are stored in the `opengenes` subfolder of the Hugging Face repository and include:
+- `open_genes.sqlite` - The complete OpenGenes database
+- `prompt.txt` - Database schema documentation and usage guidelines
 
 ## Available Tools
 
@@ -60,7 +77,7 @@ You can run the opengenes-mcp server directly using uvx without cloning the repo
 
 #### STDIO Mode (for MCP clients that require stdio, can be useful when you want to save files)
 ```bash
-# Run the server in stdio mode (default)
+# Run the server in streamed http mode (default)
 uvx opengenes-mcp
 
 # Or explicitly specify stdio mode

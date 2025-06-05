@@ -7,13 +7,79 @@ import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
+import sys
+import tempfile
 
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 from eliot import start_action
+from huggingface_hub import hf_hub_download
 
-# Get the database path using proper pathlib resolution
-DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "open_genes.sqlite"
+# Import for accessing package data files
+if sys.version_info >= (3, 9):
+    from importlib import resources
+else:
+    import importlib_resources as resources
+
+# Hugging Face repository configuration
+HF_REPO_ID = "longevity-genie/bio-mcp-data"
+HF_SUBFOLDER = "opengenes"
+
+# Get the database path using Hugging Face Hub
+def get_database_path() -> Path:
+    """Get the path to the database file from Hugging Face Hub."""
+    try:
+        # Download the database from Hugging Face Hub
+        db_path = hf_hub_download(
+            repo_id=HF_REPO_ID,
+            filename="open_genes.sqlite",
+            subfolder=HF_SUBFOLDER,
+            repo_type="dataset",  # Specify that this is a dataset repository
+            cache_dir=None  # Use default cache directory
+        )
+        return Path(db_path)
+    except Exception as e:
+        # Fallback to package data if available
+        try:
+            with resources.as_file(resources.files("opengenes_mcp.data") / "open_genes.sqlite") as db_path:
+                return db_path
+        except (FileNotFoundError, ModuleNotFoundError):
+            # Final fallback to development path structure
+            fallback_path = Path(__file__).resolve().parent.parent.parent / "data" / "open_genes.sqlite"
+            if fallback_path.exists():
+                return fallback_path
+            else:
+                raise FileNotFoundError(f"Could not find database file. Hugging Face error: {e}")
+
+def get_prompt_content() -> str:
+    """Get the content of the prompt.txt file from Hugging Face Hub."""
+    try:
+        # Download the prompt file from Hugging Face Hub
+        prompt_path = hf_hub_download(
+            repo_id=HF_REPO_ID,
+            filename="prompt.txt",
+            subfolder=HF_SUBFOLDER,
+            repo_type="dataset",  # Specify that this is a dataset repository
+            cache_dir=None  # Use default cache directory
+        )
+        with open(prompt_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        # Fallback to package data if available
+        try:
+            prompt_file = resources.files("opengenes_mcp.data") / "prompt.txt"
+            return prompt_file.read_text(encoding='utf-8')
+        except (FileNotFoundError, ModuleNotFoundError):
+            # Final fallback to development path structure
+            try:
+                project_root = Path(__file__).resolve().parent.parent.parent
+                prompt_path = project_root / "data" / "prompt.txt"
+                return prompt_path.read_text(encoding='utf-8')
+            except FileNotFoundError:
+                print(f"Warning: Could not load prompt file from Hugging Face or local sources. Error: {e}")
+                return ""
+
+DB_PATH = get_database_path()
 
 # Configuration
 DEFAULT_HOST = os.getenv("MCP_HOST", "0.0.0.0")
@@ -102,16 +168,10 @@ class OpenGenesMCP(FastMCP):
         self.tool(name=f"{self.prefix}example_queries", description="Get a list of example SQL queries")(self.get_example_queries)
         description = "Query the Opengenes database that contains data about genes involved in longevity, lifespan extension experiments on model organisms, and changes in human and other organisms with aging."
         if self.huge_query_tool:
-            # Load and concatenate the prompt from data folder using proper pathlib resolution
-            project_root = Path(__file__).resolve().parent.parent.parent
-            prompt_path = project_root / "data" / "prompt.txt"
-            try:
-                with prompt_path.open("r", encoding="utf-8") as f:
-                    prompt_content = f.read().strip()
+            # Load and concatenate the prompt from package data
+            prompt_content = get_prompt_content().strip()
+            if prompt_content:
                 description = description + "\n\n" + prompt_content
-            except FileNotFoundError:
-                # Fallback if prompt file is not found
-                pass
             self.tool(name=f"{self.prefix}db_query", description=description)(self.db_query)
         else:
             description = description + " Before caling this tool the first time, always check tools that provide schema information and example queries."
@@ -137,12 +197,8 @@ class OpenGenesMCP(FastMCP):
             """
             with start_action(action_type="get_db_prompt") as action:
                 try:
-                    # Get the prompt file path using proper pathlib resolution
-                    project_root = Path(__file__).resolve().parent.parent.parent
-                    prompt_path = project_root / "data" / "prompt.txt"
-                    
-                    if prompt_path.exists():
-                        content = prompt_path.read_text(encoding='utf-8')
+                    content = get_prompt_content()
+                    if content:
                         action.add_success_fields(file_exists=True, content_length=len(content))
                         return content
                     else:

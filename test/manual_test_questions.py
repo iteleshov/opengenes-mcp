@@ -30,11 +30,9 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 def run_query(prompt_file: Path, query: str, options: LLMOptions = llm_options.GEMINI_2_5_PRO, tell_sql: bool = False):
     load_dotenv(override=True)
 
-    # Resolve prompt file path
-    system_prompt_path = prompt_file if prompt_file.is_absolute() else PROJECT_ROOT / prompt_file
-
-    with system_prompt_path.open("r", encoding="utf-8") as f:
-        system_prompt = f.read().strip()
+    # Get prompt content from Hugging Face instead of local file
+    from opengenes_mcp.server import get_prompt_content
+    system_prompt = get_prompt_content().strip()
 
     if tell_sql:
         system_prompt += "in your response, include the SQL query that you used to answer the question."
@@ -56,7 +54,6 @@ def run_query(prompt_file: Path, query: str, options: LLMOptions = llm_options.G
 
 @app.command()
 def test_opengenes():
-    prompt_file = DATA_DIR / "prompt.txt"
     query_file = TEST_DIR / "test_opengenes.txt"
     
     with query_file.open("r", encoding="utf-8") as f:
@@ -71,7 +68,7 @@ def test_opengenes():
     for query in queries:
         query = query.strip()
         if query:
-            answer = run_query(prompt_file, query, tell_sql=True)
+            answer = run_query(None, query, tell_sql=True)
             qa_pairs.append({
                 "question": query,
                 "answer": answer

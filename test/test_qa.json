@@ -25,6 +25,11 @@
     "answer": "Yes, there are liver-specific interventions that have been shown to increase lifespan in mice.\n\nSpecifically, knockout of the IGF1 gene in the liver has been observed to increase lifespan in mice."
   },
   {
+    "question": "Which gene-longevity association is confirmed by the greatest number of studies?",
+    "sql": "SELECT HGNC, COUNT(HGNC) as study_count FROM longevity_associations GROUP BY HGNC ORDER BY study_count DESC LIMIT 1",
+    "answer": "The gene-longevity association confirmed by the greatest number of studies is for the gene **FOXO3**, with 28 studies."
+  },
+  {
     "question": "What polymorphisms in FOXO3 are associated with human longevity?",
     "sql": "SELECT HGNC, \"polymorphism type\", \"polymorphism id\", \"nucleotide substitution\", \"amino acid substitution\", \"polymorphism — other\", ethnicity, \"study type\" FROM longevity_associations WHERE HGNC = 'FOXO3'",
     "answer": "The following polymorphisms in the FOXO3 gene have been associated with human longevity:\n\nSNPs:\n*   rs2153960 (Caucasian)\n*   rs2802292 (European, Japanese, Caucasian, mixed ethnicity)\n*   rs10457180 (European, Caucasian)\n*   rs2764264 (Japanese, mixed ethnicity)\n*   rs13217795 (Japanese, mixed ethnicity, Chinese)\n*   rs4946936 (Italian, Calabrian)\n*   rs2802288 (mixed ethnicity)\n*   rs1935949 (Ashkenazi Jewish, Caucasian, Caucasian Ashkenazi Jewish)\n*   rs4946935 (Ashkenazi Jewish, Caucasian, Caucasian Ashkenazi Jewish)\n*   rs9486902 (Caucasian)\n*   rs1044891 (Caucasian)\n*   rs9486913 (Caucasian)\n*   rs3778588 (Caucasian)\n\nHaplotype:\n*   PARP1[rs1136410]+FOXO3[rs479744] (Danish)\n\nThese associations have been identified in various study types, including meta-analyses of GWAS, candidate gene studies, and replications of previous findings, across diverse ethnic populations."

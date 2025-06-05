@@ -1166,6 +1166,7 @@ dependencies = [
     { name = "eliot" },
     { name = "fastapi" },
     { name = "fastmcp" },
+    { name = "huggingface-hub" },
     { name = "pycomfort" },
     { name = "sqlite-utils" },
 ]
@@ -1183,6 +1184,7 @@ requires-dist = [
     { name = "eliot", specifier = ">=1.17.5" },
     { name = "fastapi", specifier = ">=0.115.12" },
     { name = "fastmcp", specifier = ">=2.7.0" },
+    { name = "huggingface-hub", specifier = ">=0.32.4" },
     { name = "pycomfort", specifier = ">=0.0.18" },
     { name = "sqlite-utils", specifier = ">=3.37" },
 ]
