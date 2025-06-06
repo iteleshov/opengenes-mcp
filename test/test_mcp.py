@@ -7,6 +7,9 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from typing import Dict, Any, List
+import time
+import gc
+import os
 
 # Ensure the src directory is in the Python path
 import sys
@@ -14,6 +17,41 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from fastmcp import Client
 from opengenes_mcp.server import OpenGenesMCP, DatabaseManager, QueryResult
+
+
+def safe_delete_db_file(db_path: Path, max_retries: int = 5):
+    """
+    Safely delete a database file with retry mechanism for Windows file locking issues.
+    
+    Args:
+        db_path: Path to the database file to delete
+        max_retries: Maximum number of deletion attempts
+    """
+    # Force garbage collection to release any remaining references
+    gc.collect()
+    
+    # Retry deletion with exponential backoff for Windows compatibility
+    for attempt in range(max_retries):
+        try:
+            if db_path.exists():
+                db_path.unlink()
+            break
+        except PermissionError:
+            if attempt < max_retries - 1:
+                # Wait with exponential backoff
+                time.sleep(0.1 * (2 ** attempt))
+                gc.collect()  # Try garbage collection again
+            else:
+                # On final attempt, try alternative deletion methods
+                try:
+                    if os.name == 'nt':  # Windows
+                        # Try to delete with os.remove as fallback
+                        os.remove(str(db_path))
+                    else:
+                        raise
+                except:
+                    # If all else fails, just pass - the temp file will be cleaned up eventually
+                    pass
 
 
 class TestOpenGenesMCPServer:
@@ -28,7 +66,8 @@ class TestOpenGenesMCPServer:
         db_path = Path(temp_db.name)
         
         # Create sample tables and data
-        with sqlite3.connect(db_path) as conn:
+        conn = sqlite3.connect(db_path)
+        try:
             cursor = conn.cursor()
             
             # Create lifespan_change table
@@ -114,31 +153,43 @@ class TestOpenGenesMCPServer:
             ])
             
             conn.commit()
+        finally:
+            # Explicitly close connection and cursor
+            cursor.close()
+            conn.close()
         
         yield db_path
         
-        # Cleanup
-        db_path.unlink()
+        # Cleanup with retry mechanism for Windows file locking issues
+        safe_delete_db_file(db_path)
 
     @pytest.fixture
     def mcp_server(self, sample_db):
         """Create OpenGenes MCP server instance with test database."""
-        return OpenGenesMCP(
+        server = OpenGenesMCP(
             name="TestOpenGenesServer",
             db_path=sample_db,
             prefix="test_opengenes_",
             huge_query_tool=False
         )
+        yield server
+        # Explicit cleanup to help with Windows file locking
+        del server
+        gc.collect()  # Force garbage collection to release database connections
 
     @pytest.fixture
     def mcp_server_huge_query(self, sample_db):
         """Create OpenGenes MCP server instance with huge query tool enabled."""
-        return OpenGenesMCP(
+        server = OpenGenesMCP(
             name="TestOpenGenesServerHuge",
             db_path=sample_db,
             prefix="test_opengenes_",
             huge_query_tool=True
         )
+        yield server
+        # Explicit cleanup to help with Windows file locking
+        del server
+        gc.collect()  # Force garbage collection to release database connections
 
     @pytest.mark.asyncio
     async def test_server_initialization(self, mcp_server):
@@ -424,7 +475,8 @@ class TestErrorHandling:
         db_path = Path(temp_db.name)
         
         # Create sample tables and data
-        with sqlite3.connect(db_path) as conn:
+        conn = sqlite3.connect(db_path)
+        try:
             cursor = conn.cursor()
             
             # Create lifespan_change table
@@ -450,11 +502,15 @@ class TestErrorHandling:
             ])
             
             conn.commit()
+        finally:
+            # Explicitly close connection and cursor
+            cursor.close()
+            conn.close()
         
         yield db_path
         
-        # Cleanup
-        db_path.unlink()
+        # Cleanup with retry mechanism for Windows file locking issues
+        safe_delete_db_file(db_path)
 
     def test_sql_injection_prevention(self, sample_db):
         """Test that the system handles potential SQL injection attempts."""
@@ -470,12 +526,16 @@ class TestErrorHandling:
     @pytest.fixture
     def mcp_server(self, sample_db):
         """Create OpenGenes MCP server instance with test database."""
-        return OpenGenesMCP(
+        server = OpenGenesMCP(
             name="TestOpenGenesServer",
             db_path=sample_db,
             prefix="test_opengenes_",
             huge_query_tool=False
         )
+        yield server
+        # Explicit cleanup to help with Windows file locking
+        del server
+        gc.collect()  # Force garbage collection to release database connections
 
     @pytest.mark.asyncio
     async def test_empty_query_results(self, mcp_server):
