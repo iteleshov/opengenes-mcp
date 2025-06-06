@@ -21,6 +21,14 @@ The OpenGenes database contains:
 
 If you want to understand more about what the Model Context Protocol is and how to use it more efficiently, you can take the [DeepLearning AI Course](https://www.deeplearning.ai/short-courses/mcp-build-rich-context-ai-apps-with-anthropic/) or search for MCP videos on YouTube.
 
+## Usage Example
+
+Here's how the OpenGenes MCP server works in practice with AI assistants:
+
+![OpenGenes MCP Usage Example](images/open-genes-usage-chat.png)
+
+*Example showing how to query the OpenGenes database through an AI assistant using natural language, which gets translated to SQL queries via the MCP server. You can use this database both in chat interfaces for research questions and in AI-based development tools (like Cursor, Windsurf, VS Code with Copilot) to significantly improve your bioinformatics productivity by having direct access to aging and longevity research data while coding.*
+
 ## About MCP (Model Context Protocol)
 
 MCP is a protocol that bridges the gap between AI systems and specialized domain knowledge. It enables:
@@ -75,11 +83,17 @@ uvx is a very nice tool that can run a python package installing it if needed.
 
 You can run the opengenes-mcp server directly using uvx without cloning the repository:
 
-#### STDIO Mode (for MCP clients that require stdio, can be useful when you want to save files)
 ```bash
 # Run the server in streamed http mode (default)
 uvx opengenes-mcp
+```
 
+<details>
+<summary>Other uvx modes (STDIO, HTTP, SSE)</summary>
+
+#### STDIO Mode (for MCP clients that require stdio, can be useful when you want to save files)
+
+```bash
 # Or explicitly specify stdio mode
 uvx opengenes-mcp stdio
 ```
@@ -99,68 +113,31 @@ uvx opengenes-mcp server --port 8000
 uvx opengenes-mcp sse
 ```
 
+</details>
+
+In cases when there are problems with uvx often they can be caused by clenaing uv cache:
+```
+uv cache clean
+```
+
 The HTTP mode will start a web server that you can access at `http://localhost:3001/mcp` (with documentation at `http://localhost:3001/docs`). The STDIO mode is designed for MCP clients that communicate via standard input/output, while SSE mode uses Server-Sent Events for real-time communication.
 
 ## Configuring your AI Client (Anthropic Claude Desktop, Cursor, Windsurf, etc.)
 
 We provide preconfigured JSON files for different use cases:
 
-### For STDIO mode (recommended):
-Use `mcp-config-stdio.json` for connecting to the server via uvx:
+- **For STDIO mode (recommended):** Use `mcp-config-stdio.json`
+- **For HTTP mode:** Use `mcp-config.json` 
+- **For local development:** Use `mcp-config-stdio-debug.json`
 
-```json
-{
-  "mcpServers": {
-    "opengenes-mcp": {
-      "command": "uvx",
-      "args": ["opengenes-mcp"],
-      "env": {
-        "MCP_PORT": "3001",
-        "MCP_HOST": "0.0.0.0",
-        "MCP_TRANSPORT": "stdio"
-      }
-    }
-  }
-}
-```
+### Configuration Video Tutorial
 
-### For HTTP mode:
-Use `mcp-config.json` for connecting to a locally running HTTP server:
-
-```json
-{
-  "mcpServers": {
-    "opengenes-mcp": {
-      "url": "http://localhost:3001/mcp",
-      "type": "streamable-http",
-      "env": {
-        "API_ACCESS_TOKEN": "access-token"
-      }
-    }
-  }
-}
-```
-
-### For local development:
-Use `mcp-config-stdio-debug.json` when working with the cloned repository:
-
-```json
-{
-  "mcpServers": {
-    "opengenes-mcp": {
-      "command": "uv",
-      "args": ["run", "stdio"],
-      "env": {
-        "MCP_PORT": "3001",
-        "MCP_HOST": "0.0.0.0",
-        "MCP_TRANSPORT": "stdio"
-      }
-    }
-  }
-}
-```
+For a visual guide on how to configure MCP servers with AI clients, check out our [configuration tutorial video](https://www.youtube.com/watch?v=Xo0sHWGJvE0) for our sister MCP server (biothings-mcp). The configuration principles are exactly the same for the OpenGenes MCP server - just use the appropriate JSON configuration files provided above.
 
 ### Inspecting OpenGenes MCP server
+
+<details>
+<summary>Using MCP Inspector to explore server capabilities</summary>
 
 If you want to inspect the methods provided by the MCP server, use npx (you may need to install nodejs and npm):
 
@@ -186,15 +163,11 @@ npx @modelcontextprotocol/inspector
 
 After that you can explore the tools and resources with MCP Inspector at http://127.0.0.1:6274 (note, if you run inspector several times it can change port)
 
+</details>
+
 ### Integration with AI Systems
 
-To integrate this server with your MCP-compatible AI client, you can use one of the preconfigured JSON files provided in this repository:
-
-*   **For connecting via STDIO mode (recommended):** Use `mcp-config-stdio.json`. This uses uvx to run the published package and doesn't require you to run anything locally first.
-*   **For connecting to a locally running HTTP server:** Use `mcp-config.json`. Ensure the server is running first via `uv run server` (see [Running the MCP Server](#running-the-mcp-server)).
-*   **For local development:** Use `mcp-config-stdio-debug.json`. This is useful when working with the cloned repository during development.
-
-Simply point your AI client (like Cursor, Windsurf, ClaudeDesktop, VS Code with Copilot, or [others](https://github.com/punkpeye/awesome-mcp-clients)) to use the appropriate configuration file.
+Simply point your AI client (like Cursor, Windsurf, ClaudeDesktop, VS Code with Copilot, or [others](https://github.com/punkpeye/awesome-mcp-clients)) to use the appropriate configuration file from the repository.
 
 ## Repository setup
 
@@ -222,6 +195,9 @@ uv run sse
 
 ## Database Schema
 
+<details>
+<summary>Detailed schema information</summary>
+
 ### Main Tables
 
 - **lifespan_change** (47 columns): Experimental lifespan data with intervention details across model organisms
@@ -238,7 +214,12 @@ uv run sse
 - **criteria**: Aging-related gene classification (12 categories)
 - **hallmarks of aging**: Biological aging processes associated with genes
 
+</details>
+
 ## Example Queries
+
+<details>
+<summary>Sample SQL queries for common research questions</summary>
 
 ```sql
 -- Get top genes with most lifespan experiments
@@ -272,6 +253,8 @@ FROM lifespan_change lc
 INNER JOIN longevity_associations la ON lc.HGNC = la.HGNC 
 WHERE lc.HGNC IS NOT NULL;
 ```
+
+</details>
 
 ## Safety Features
 
@@ -314,7 +297,11 @@ You can use MCP inspector with locally built MCP server same way as with uvx.
 
 ## Example questions that MCP helps to answer
 
-* What genes need to be downregulated in worms to extend their lifespan?
+<details>
+<summary>Research questions you can explore with this MCP server</summary>
+
+* Interventions on which genes extended mice lifespan most of all?
+* Which knockdowns were most lifespan extending on model animals?
 * What processes are improved in GHR knockout mice?
 * Which genetic intervention led to the greatest increase in lifespan in flies?
 * To what extent did the lifespan increase in mice overexpressing VEGFA?
@@ -325,14 +312,14 @@ You can use MCP inspector with locally built MCP server same way as with uvx.
 * Is the INS gene polymorphism associated with longevity?
 * What genes are associated with transcriptional alterations?
 * Which hallmarks are associated with the KL gene?
-* What genes change their expression with aging in humans?
 * How many genes are associated with longevity in humans?
 * What types of studies have been conducted on the IGF1R gene?
 * What evidence of the link between PTEN and aging do you know? 
 * What genes are associated with both longevity and altered expression in aged humans?
 * Is the expression of the ACE2 gene altered with aging in humans?
-* Interventions on which genes extended mice lifespan most of all?
-* Which knockdowns were most lifespan extending on model animals?
+* What genes need to be downregulated in worms to extend their lifespan?
+
+</details>
 
 ## Contributing
 
@@ -383,10 +370,17 @@ This project is licensed under the MIT License.
 ## Acknowledgments
 
 - [OpenGenes Database](https://open-genes.com/) for the comprehensive aging research data
+  - Rafikova E, Nemirovich-Danchenko N, Ogmen A, Parfenenkova A, Velikanova A, Tikhonov S, Peshkin L, Rafikov K, Spiridonova O, Belova Y, Glinin T, Egorova A, Batin M. Open Genes-a new comprehensive database of human genes associated with aging and longevity. Nucleic Acids Res. 2024 Jan 5;52(D1):D950-D962. doi: 10.1093/nar/gkad712. PMID: 37665017; PMCID: PMC10768108.
 - [Model Context Protocol](https://modelcontextprotocol.io/) for the protocol specification
 - [FastMCP](https://github.com/jlowin/fastmcp) for the MCP server framework
 
 This project is part of the [Longevity Genie](https://github.com/longevity-genie) organization, which develops open-source AI assistants and libraries for health, genetics, and longevity research.
+
+### Other MCP Servers by Longevity Genie
+
+We also develop other specialized MCP servers for biomedical research:
+
+- **[biothings-mcp](https://github.com/longevity-genie/biothings-mcp)** - MCP server for BioThings.io APIs, providing access to gene annotation (mygene.info), variant annotation (myvariant.info), and chemical compound data (mychem.info)
 
 We are supported by:
 

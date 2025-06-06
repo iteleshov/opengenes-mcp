@@ -31,10 +31,11 @@ jobs:
     - name: Test MCP server functionality
       run: |
         # Test that the server can start and respond
+        # Exit code 124 means timeout killed the process, which is expected
         timeout 5s uv run stdio < /dev/null || [ $? -eq 124 ]
         
-        # Test server script
-        timeout 5s uv run server --help
+        # Test server script help (should exit cleanly)
+        uv run server --help
 
   test-windows:
     runs-on: windows-latest
@@ -61,7 +62,10 @@ jobs:
       shell: pwsh
       run: |
         # Test that the server can start and respond (Windows version)
-        Start-Process -FilePath "uv" -ArgumentList "run", "stdio" -NoNewWindow -Wait -TimeoutSec 5 -ErrorAction SilentlyContinue
+        $job = Start-Job -ScriptBlock { uv run stdio }
+        Wait-Job $job -Timeout 5 | Out-Null
+        Stop-Job $job -ErrorAction SilentlyContinue
+        Remove-Job $job -ErrorAction SilentlyContinue
         
         # Test server script
         uv run server --help
