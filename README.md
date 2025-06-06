@@ -122,6 +122,8 @@ uv cache clean
 
 The HTTP mode will start a web server that you can access at `http://localhost:3001/mcp` (with documentation at `http://localhost:3001/docs`). The STDIO mode is designed for MCP clients that communicate via standard input/output, while SSE mode uses Server-Sent Events for real-time communication.
 
+**Note:** Currently, we do not have a Swagger/OpenAPI interface, so accessing the server directly in your browser will not show much useful information. To explore the available tools and capabilities, you should either use the MCP Inspector (see below) or connect through an MCP client to see the available tools.
+
 ## Configuring your AI Client (Anthropic Claude Desktop, Cursor, Windsurf, etc.)
 
 We provide preconfigured JSON files for different use cases:
@@ -363,6 +365,14 @@ We welcome contributions from the community! 🎉 Whether you're a researcher, d
 
 Don't hesitate to open an issue for discussion! We're friendly and always happy to help newcomers get started. Your contributions help advance open science and longevity research for everyone. 🧬✨
 
+## Known Issues
+
+### Database Coverage
+Currently, this MCP server uses only a subset of the complete OpenGenes database. The full OpenGenes database contains additional tables and data that are not yet included in our MCP implementation. **We need contributors to help extend support for the complete database!** If you're interested in helping expand the database coverage, please see our [Contributing](#contributing) section.
+
+### Test Coverage
+While we provide comprehensive tests including LLM-as-a-judge evaluations, not all test cases have been manually verified against the actual OpenGenes web interface. Some automated test results may need manual validation to ensure accuracy. Contributions to improve test coverage and validation are welcome.
+
 ## License
 
 This project is licensed under the MIT License.
@@ -384,12 +394,12 @@ We also develop other specialized MCP servers for biomedical research:
 
 We are supported by:
 
-[![HEALES](https://heales.org/images/heales.jpg)](https://heales.org/)
+[![HEALES](https://github.com/longevity-genie/biothings-mcp/raw/main/images/heales.jpg)](https://heales.org/)
 
 *HEALES - Healthy Life Extension Society*
 
 and
 
-[![IBIMA](https://ibima.med.uni-rostock.de/images/IBIMA.jpg)](https://ibima.med.uni-rostock.de/)
+[![IBIMA](https://github.com/longevity-genie/biothings-mcp/raw/main/images/IBIMA.jpg)](https://ibima.med.uni-rostock.de/)
 
 [IBIMA - Institute for Biostatistics and Informatics in Medicine and Ageing Research](https://ibima.med.uni-rostock.de/)

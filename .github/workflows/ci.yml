@@ -30,9 +30,24 @@ jobs:
 
     - name: Test MCP server functionality
       run: |
-        # Test that the server can start and respond
-        # Exit code 124 means timeout killed the process, which is expected
-        timeout 5s uv run stdio < /dev/null || [ $? -eq 124 ]
+        # Test that the server can be imported and instantiated
+        uv run python -c "
+        import sys
+        sys.path.insert(0, 'src')
+        from opengenes_mcp.server import OpenGenesMCP
+        print('✓ Server can be imported')
+        try:
+            # Test basic instantiation (will download DB from HuggingFace)
+            server = OpenGenesMCP()
+            print('✓ Server can be instantiated')
+            print(f'✓ Database path: {server.db_manager.db_path}')
+            # Test that database is accessible
+            result = server.db_manager.execute_query('SELECT COUNT(*) as count FROM sqlite_master WHERE type=\"table\"')
+            print(f'✓ Database has {result.rows[0][\"count\"]} tables')
+        except Exception as e:
+            print(f'✗ Server instantiation failed: {e}')
+            sys.exit(1)
+        "
         
         # Test server script help (should exit cleanly)
         uv run server --help
@@ -61,11 +76,24 @@ jobs:
     - name: Test MCP server functionality
       shell: pwsh
       run: |
-        # Test that the server can start and respond (Windows version)
-        $job = Start-Job -ScriptBlock { uv run stdio }
-        Wait-Job $job -Timeout 5 | Out-Null
-        Stop-Job $job -ErrorAction SilentlyContinue
-        Remove-Job $job -ErrorAction SilentlyContinue
+        # Test that the server can be imported and instantiated
+        uv run python -c "
+        import sys
+        sys.path.insert(0, 'src')
+        from opengenes_mcp.server import OpenGenesMCP
+        print('✓ Server can be imported')
+        try:
+            # Test basic instantiation (will download DB from HuggingFace)
+            server = OpenGenesMCP()
+            print('✓ Server can be instantiated')
+            print(f'✓ Database path: {server.db_manager.db_path}')
+            # Test that database is accessible
+            result = server.db_manager.execute_query('SELECT COUNT(*) as count FROM sqlite_master WHERE type=\"table\"')
+            print(f'✓ Database has {result.rows[0][\"count\"]} tables')
+        except Exception as e:
+            print(f'✗ Server instantiation failed: {e}')
+            sys.exit(1)
+        "
         
         # Test server script
         uv run server --help

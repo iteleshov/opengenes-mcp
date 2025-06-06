@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
 import sys
 import tempfile
+import argparse
 
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -741,15 +742,34 @@ mcp = OpenGenesMCP()
 # CLI functions
 def cli_app():
     """Run the MCP server."""
-    mcp.run(transport="streamable-http", host=DEFAULT_HOST, port=DEFAULT_PORT)
+    parser = argparse.ArgumentParser(description="OpenGenes MCP Server")
+    parser.add_argument("--host", default=DEFAULT_HOST, help="Host to bind to")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port to bind to")
+    parser.add_argument("--transport", default="streamable-http", help="Transport type")
+    
+    args = parser.parse_args()
+    
+    mcp.run(transport=args.transport, host=args.host, port=args.port)
 
 def cli_app_stdio():
     """Run the MCP server with stdio transport."""
+    parser = argparse.ArgumentParser(description="OpenGenes MCP Server (STDIO transport)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    
+    # Parse args but don't use them since stdio doesn't need host/port
+    args = parser.parse_args()
+    
     mcp.run(transport="stdio")
 
 def cli_app_sse():
-    """Run the MCP server with SSE transport.""" 
-    mcp.run(transport="sse", host=DEFAULT_HOST, port=DEFAULT_PORT)
+    """Run the MCP server with SSE transport."""
+    parser = argparse.ArgumentParser(description="OpenGenes MCP Server (SSE transport)")
+    parser.add_argument("--host", default=DEFAULT_HOST, help="Host to bind to")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port to bind to")
+    
+    args = parser.parse_args()
+    
+    mcp.run(transport="sse", host=args.host, port=args.port)
 
 if __name__ == "__main__":
     cli_app()
