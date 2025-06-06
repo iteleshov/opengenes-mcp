@@ -281,6 +281,8 @@ WHERE lc.HGNC IS NOT NULL;
 
 ## Testing & Verification
 
+The MCP server is provided with comprehensive tests including LLM-as-a-judge tests that evaluate the quality of responses to complex queries. However, LLM-based tests are disabled by default in CI to save costs.
+
 ### Environment Setup for LLM Agent Tests
 
 If you want to run LLM agent tests that use MCP functions with Gemini models, you need to set up a `.env` file with your Gemini API key:
@@ -331,6 +333,48 @@ You can use MCP inspector with locally built MCP server same way as with uvx.
 * Is the expression of the ACE2 gene altered with aging in humans?
 * Interventions on which genes extended mice lifespan most of all?
 * Which knockdowns were most lifespan extending on model animals?
+
+## Contributing
+
+We welcome contributions from the community! 🎉 Whether you're a researcher, developer, or enthusiast interested in aging and longevity research, there are many ways to get involved:
+
+**We especially encourage you to try our MCP server and share your feedback with us!** Your experience using the server, any issues you encounter, and suggestions for improvement are incredibly valuable for making this tool better for the entire research community.
+
+### Ways to Contribute
+
+- **🐛 Bug Reports**: Found an issue? Please open a GitHub issue with detailed information
+- **💡 Feature Requests**: Have ideas for new functionality? We'd love to hear them!
+- **📝 Documentation**: Help improve our documentation, examples, or tutorials
+- **🧪 Testing**: Add test cases, especially for edge cases or new query patterns
+- **🔍 Data Quality**: Help identify and report data inconsistencies or suggest improvements
+- **🚀 Performance**: Optimize queries, improve caching, or enhance server performance
+- **🌐 Integration**: Create examples for new MCP clients or AI systems
+- **🎥 Tutorials & Videos**: Create tutorials, video guides, or educational content showing how to use MCP servers
+- **📖 User Stories**: Share your research workflows and success stories using our MCP servers
+- **🤝 Community Outreach**: Help us evangelize MCP adoption in the bioinformatics community
+
+**Tutorials, videos, and user stories are especially valuable to us!** We're working to push the bioinformatics community toward AI adoption, and real-world examples of how researchers use our MCP servers (this one and others we develop) help demonstrate the practical benefits and encourage wider adoption.
+
+### Getting Started
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes and add tests
+4. Run the test suite (`uv run pytest`)
+5. Commit your changes (`git commit -m 'Add amazing feature'`)
+6. Push to your branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
+
+### Development Guidelines
+
+- Follow the existing code style (we use `black` for formatting)
+- Add tests for new functionality
+- Update documentation as needed
+- Keep commits focused and write clear commit messages
+
+### Questions or Ideas?
+
+Don't hesitate to open an issue for discussion! We're friendly and always happy to help newcomers get started. Your contributions help advance open science and longevity research for everyone. 🧬✨
 
 ## License
 

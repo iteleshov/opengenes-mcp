@@ -26,8 +26,14 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 # Create logs directory
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
+
+answers_model = {
+    "model": "gemini/gemini-2.5-flash-preview-05-20",
+    "temperature": 0.0
+}
+
 @log_call()
-def run_query(prompt_file: Path, query: str, options: LLMOptions = llm_options.GEMINI_2_5_PRO, tell_sql: bool = False):
+def run_query(prompt_file: Path, query: str, options: LLMOptions = answers_model, tell_sql: bool = False):
     load_dotenv(override=True)
 
     # Get prompt content from Hugging Face instead of local file
