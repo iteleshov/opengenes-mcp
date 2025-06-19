@@ -1,11 +1,7 @@
-import sys
 import json
 import pytest
 import os
 from pathlib import Path
-
-# Add the src directory to Python path for imports
-sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
 
 from dotenv import load_dotenv
 from just_agents import llm_options

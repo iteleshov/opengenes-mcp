@@ -1,8 +1,6 @@
 import sys
 from pathlib import Path
 
-# Add the src directory to Python path for imports
-sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
 
 import typer
 import json

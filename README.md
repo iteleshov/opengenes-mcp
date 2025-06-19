@@ -21,6 +21,20 @@ The OpenGenes database contains:
 
 If you want to understand more about what the Model Context Protocol is and how to use it more efficiently, you can take the [DeepLearning AI Course](https://www.deeplearning.ai/short-courses/mcp-build-rich-context-ai-apps-with-anthropic/) or search for MCP videos on YouTube.
 
+## 🏆 Part of Holy Bio MCP Framework
+
+This MCP server is part of the **[Holy Bio MCP](https://github.com/longevity-genie/holy-bio-mcp)** project - a unified framework for bioinformatics research that **won the Bio x AI Hackathon 2025** and continues to be actively developed and extended after the victory. 
+
+The Holy Bio MCP framework brings together multiple specialized MCP servers into a cohesive ecosystem for advanced biological research:
+
+- **[gget-mcp](https://github.com/longevity-genie/gget-mcp)** - Genomics & sequence analysis toolkit
+- **[opengenes-mcp](https://github.com/longevity-genie/opengenes-mcp)** - Aging & longevity genetics (this server)
+- **[synergy-age-mcp](https://github.com/longevity-genie/synergy-age-mcp)** - Synergistic genetic interactions in longevity
+- **[biothings-mcp](https://github.com/longevity-genie/biothings-mcp)** - Foundational biological data from BioThings.io
+- **[pharmacology-mcp](https://github.com/antonkulaga/pharmacology-mcp)** - Drug, target & ligand data
+
+Together, these servers provide 50+ specialized bioinformatics functions that can work seamlessly together in AI-driven research workflows. Learn more about the complete framework at [github.com/longevity-genie/holy-bio-mcp](https://github.com/longevity-genie/holy-bio-mcp).
+
 ## Usage Example
 
 Here's how the OpenGenes MCP server works in practice with AI assistants:
@@ -126,7 +140,29 @@ The HTTP mode will start a web server that you can access at `http://localhost:3
 
 ## Configuring your AI Client (Anthropic Claude Desktop, Cursor, Windsurf, etc.)
 
-We provide preconfigured JSON files for different use cases:
+### Quick Configuration Example
+
+Here's what you can copy directly into your Claude Desktop or Cursor MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "opengenes-mcp": {
+      "command": "uvx",
+      "args": ["opengenes-mcp"],
+      "env": {
+        "MCP_PORT": "3001",
+        "MCP_HOST": "0.0.0.0",
+        "MCP_TRANSPORT": "stdio"
+      }
+    }
+  }
+}
+```
+
+### Alternative: Using Preconfigured Files
+
+We also provide preconfigured JSON files for different use cases:
 
 - **For STDIO mode (recommended):** Use `mcp-config-stdio.json`
 - **For HTTP mode:** Use `mcp-config.json` 
@@ -386,11 +422,16 @@ This project is licensed under the MIT License.
 
 This project is part of the [Longevity Genie](https://github.com/longevity-genie) organization, which develops open-source AI assistants and libraries for health, genetics, and longevity research.
 
-### Other MCP Servers by Longevity Genie
+### Other MCP Servers in the Holy Bio MCP Framework
 
-We also develop other specialized MCP servers for biomedical research:
+This server is part of the complete **[Holy Bio MCP](https://github.com/longevity-genie/holy-bio-mcp)** framework, which includes:
 
-- **[biothings-mcp](https://github.com/longevity-genie/biothings-mcp)** - MCP server for BioThings.io APIs, providing access to gene annotation (mygene.info), variant annotation (myvariant.info), and chemical compound data (mychem.info)
+- **[gget-mcp](https://github.com/longevity-genie/gget-mcp)** - Powerful bioinformatics toolkit for genomics queries and analysis
+- **[synergy-age-mcp](https://github.com/longevity-genie/synergy-age-mcp)** - Database of synergistic and antagonistic genetic interactions in longevity 
+- **[biothings-mcp](https://github.com/longevity-genie/biothings-mcp)** - Access to BioThings.io APIs for comprehensive gene, variant, chemical, and taxonomic data
+- **[pharmacology-mcp](https://github.com/antonkulaga/pharmacology-mcp)** - Access to the Guide to PHARMACOLOGY database for drug, target, and ligand information
+
+The framework provides unified configuration files that enable all servers at once, making it easy to access 50+ specialized bioinformatics functions through a single setup. This award-winning project continues to evolve as a comprehensive platform for AI-driven biological research.
 
 We are supported by:
 

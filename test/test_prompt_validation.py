@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 """Pytest-based validation of prompt query examples with type hints and CLI support."""
 
-import sys
 import pytest
 from typing import List, Dict, Any, Tuple, Optional
 from pathlib import Path
-
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from opengenes_mcp.server import OpenGenesMCP, QueryResult
 

@@ -11,10 +11,6 @@ import time
 import gc
 import os
 
-# Ensure the src directory is in the Python path
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
 from fastmcp import Client
 from opengenes_mcp.server import OpenGenesMCP, DatabaseManager, QueryResult
 

@@ -32,8 +32,6 @@ jobs:
       run: |
         # Test that the server can be imported and instantiated
         uv run python -c "
-        import sys
-        sys.path.insert(0, 'src')
         from opengenes_mcp.server import OpenGenesMCP
         print('✓ Server can be imported')
         try:
@@ -78,8 +76,6 @@ jobs:
       run: |
         # Test that the server can be imported and instantiated
         uv run python -c "
-        import sys
-        sys.path.insert(0, 'src')
         from opengenes_mcp.server import OpenGenesMCP
         print('✓ Server can be imported')
         try:
