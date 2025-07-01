@@ -151,8 +151,6 @@ Here's what you can copy directly into your Claude Desktop or Cursor MCP configu
       "command": "uvx",
       "args": ["opengenes-mcp"],
       "env": {
-        "MCP_PORT": "3001",
-        "MCP_HOST": "0.0.0.0",
         "MCP_TRANSPORT": "stdio"
       }
     }

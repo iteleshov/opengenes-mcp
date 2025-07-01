@@ -1,6 +1,6 @@
 [project]
 name = "opengenes-mcp"
-version = "0.1.3"
+version = "0.1.4"
 description = "MCP for OpenGenes"
 readme = "README.md"
 authors = [
@@ -11,18 +11,18 @@ requires-python = ">=3.10"
 dependencies = [
     "eliot>=1.17.5",
     "pycomfort>=0.0.18",
-    "fastmcp>=2.8.1",
-    "fastapi>=0.115.13",
+    "fastmcp>=2.9.1",
     "aiosqlite>=0.20.0",
-    "sqlite-utils>=3.37",
-    "huggingface-hub>=0.33.0",
+    "sqlite-utils>=3.38",
+    "huggingface-hub>=0.33.1",
+    "typer>=0.16.0",
 ]
 
 [project.scripts]
 opengenes-mcp = "opengenes_mcp.server:cli_app_stdio"
-server = "opengenes_mcp.server:cli_app"
-stdio = "opengenes_mcp.server:cli_app_stdio"
-sse = "opengenes_mcp.server:cli_app_sse"
+opengenes-mcp-stdio = "opengenes_mcp.server:cli_app_stdio"
+opengenes-mcp-sse = "opengenes_mcp.server:cli_app_sse"
+opengenes-mcp-run = "opengenes_mcp.server:cli_app_run"
 
 [build-system]
 requires = ["hatchling"]
@@ -50,8 +50,8 @@ exclude = [
 
 [dependency-groups]
 dev = [
-    "just-agents-core>=0.7.4",
+    "just-agents-core>=0.8.0",
     "pytest>=8.4.1",
-    "pytest-asyncio>=0.26.0",
-    "ruff>=0.12.0",
+    "pytest-asyncio>=1.0.0",
+    "ruff>=0.12.1"
 ]

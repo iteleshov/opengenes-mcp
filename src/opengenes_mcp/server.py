@@ -9,8 +9,8 @@ from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
 import sys
 import tempfile
-import argparse
 
+import typer
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 from eliot import start_action
@@ -270,6 +270,9 @@ All tables are linked by HGNC gene symbols, allowing for comprehensive cross-tab
         - IMPORTANT: When user asks about "lifespan effects" without specifying mean vs max, 
           show both lifespan_percent_change_mean AND lifespan_percent_change_max
         - Use COALESCE(lifespan_percent_change_mean, lifespan_percent_change_max) for ordering both metrics
+        - COMPREHENSIVE AGING EVIDENCE: When users ask about "evidence of aging", "link to aging/longevity", 
+          or "aging associations" for a gene, query ALL 4 tables (gene_criteria, gene_hallmarks, 
+          lifespan_change, longevity_associations) for complete scientific evidence
         
         For detailed schema information, use get_schema_info().
         For query examples and patterns, use get_example_queries().
@@ -329,6 +332,12 @@ All tables are linked by HGNC gene symbols, allowing for comprehensive cross-tab
                         "importance": "Always order lifespan results by magnitude of effect for relevance",
                         "both_metrics": "When showing both mean and max, use COALESCE for ordering or show comparison"
                     },
+                    "comprehensive_aging_evidence": {
+                        "description": "For questions about aging evidence, link to aging, or longevity associations for a gene, query ALL 4 tables for complete evidence",
+                        "required_tables": "1) gene_criteria (aging-related criteria), 2) gene_hallmarks (aging pathways), 3) lifespan_change (experimental effects), 4) longevity_associations (human population studies)",
+                        "example_patterns": "Evidence of X and aging, Link between X and aging, X gene aging associations, What evidence links X to aging",
+                        "critical_note": "Do NOT omit longevity_associations table - it contains crucial human population genetics data"
+                    },
                     "gene_queries": "Use HGNC column for gene symbols (TP53, FOXO3, etc.)",
                     "safety": "Only SELECT queries allowed - no INSERT, UPDATE, DELETE, or DDL operations"
                 },
@@ -382,6 +391,12 @@ All tables are linked by HGNC gene symbols, allowing for comprehensive cross-tab
                     "key_columns": "HGNC, polymorphism data, ethnicity, study type",
                     "use_cases": "Questions about genetic variants associated with longevity in human populations",
                     "special_notes": "Contains SNPs, indels, and other genetic variations from population studies"
+                },
+                "comprehensive_aging_evidence": {
+                    "purpose": "IMPORTANT: When users ask about 'evidence of aging', 'link to aging/longevity', or 'aging associations' for a gene, query ALL 4 tables for complete evidence",
+                    "recommended_approach": "For comprehensive aging evidence, combine data from: 1) gene_criteria (why gene is aging-related), 2) gene_hallmarks (aging pathways involved), 3) lifespan_change (experimental effects), 4) longevity_associations (human population studies)",
+                    "example_question_patterns": "What evidence links X to aging?, Evidence of X and aging, X gene and longevity associations, Link between X and aging",
+                    "critical_note": "Do not just query experimental tables (lifespan_change) - include population genetics data (longevity_associations) for complete evidence"
                 }
             }
             
@@ -423,8 +438,15 @@ All tables are linked by HGNC gene symbols, allowing for comprehensive cross-tab
                     column_descriptions = {
                         "HGNC": "Gene symbol (standard gene names like TP53, FOXO3)",
                         "polymorphism type": "Type of genetic variant (SNP, In/Del, VNTR, etc.)",
+                        "polymorphism id": "Identifier for the genetic variant (e.g., rs numbers for SNPs)",
+                        "nucleotide substitution": "DNA sequence change for the variant",
+                        "amino acid substitution": "Protein sequence change caused by the variant",
+                        "polymorphism — other": "Additional polymorphism details",
                         "ethnicity": "Ethnicity of study participants",
-                        "study type": "Type of population study (GWAS, candidate genes, meta-analysis, etc.)"
+                        "study type": "Type of population study (GWAS, candidate genes, meta-analysis, etc.)",
+                        "sex": "Sex of study participants",
+                        "doi": "DOI of the research publication",
+                        "pmid": "PubMed ID of the research publication"
                     }
                 
                 schema_info["tables"][table_name] = {
@@ -465,26 +487,26 @@ All tables are linked by HGNC gene symbols, allowing for comprehensive cross-tab
             {
                 "category": "Lifespan Effects - Ordered by Magnitude",
                 "description": "Genes that increase lifespan, ordered by greatest extension first",
-                "query": "SELECT HGNC, model_organism, effect_on_lifespan, lifespan_percent_change_mean FROM lifespan_change WHERE effect_on_lifespan = 'increases lifespan' AND lifespan_percent_change_mean IS NOT NULL ORDER BY lifespan_percent_change_mean DESC LIMIT 20",
-                "key_concept": "Always order lifespan results by magnitude for relevance"
+                "query": "SELECT HGNC, model_organism, effect_on_lifespan, lifespan_percent_change_mean FROM lifespan_change WHERE effect_on_lifespan = 'increases lifespan' AND lifespan_percent_change_mean IS NOT NULL ORDER BY lifespan_percent_change_mean DESC",
+                "key_concept": "Always order lifespan results by magnitude for relevance. Use LIMIT only when user specifically asks for 'top N' or similar"
             },
             {
                 "category": "Lifespan Effects - Ordered by Magnitude", 
                 "description": "Genes that decrease lifespan, ordered by greatest reduction first",
-                "query": "SELECT HGNC, model_organism, effect_on_lifespan, lifespan_percent_change_mean FROM lifespan_change WHERE effect_on_lifespan = 'decreases lifespan' AND lifespan_percent_change_mean IS NOT NULL ORDER BY lifespan_percent_change_mean ASC LIMIT 20",
-                "key_concept": "Use ASC ordering for lifespan reductions to show largest decreases first"
+                "query": "SELECT HGNC, model_organism, effect_on_lifespan, lifespan_percent_change_mean FROM lifespan_change WHERE effect_on_lifespan = 'decreases lifespan' AND lifespan_percent_change_mean IS NOT NULL ORDER BY lifespan_percent_change_mean ASC",
+                "key_concept": "Use ASC ordering for lifespan reductions to show largest decreases first. Use LIMIT only when user specifically asks for 'top N' or similar"
             },
             {
                 "category": "Lifespan Effects - Mean vs Maximum",
                 "description": "Show both mean and maximum lifespan changes when user asks about lifespan effects",
-                "query": "SELECT HGNC, model_organism, effect_on_lifespan, lifespan_percent_change_mean, lifespan_percent_change_max, significance_mean, significance_max FROM lifespan_change WHERE effect_on_lifespan = 'increases lifespan' AND (lifespan_percent_change_mean IS NOT NULL OR lifespan_percent_change_max IS NOT NULL) ORDER BY COALESCE(lifespan_percent_change_mean, lifespan_percent_change_max) DESC LIMIT 15",
-                "key_concept": "IMPORTANT: When user asks about lifespan effects without specifying mean vs max, show both metrics. Researchers may be interested in either average effects or maximum potential."
+                "query": "SELECT HGNC, model_organism, effect_on_lifespan, lifespan_percent_change_mean, lifespan_percent_change_max, significance_mean, significance_max FROM lifespan_change WHERE effect_on_lifespan = 'increases lifespan' AND (lifespan_percent_change_mean IS NOT NULL OR lifespan_percent_change_max IS NOT NULL) ORDER BY COALESCE(lifespan_percent_change_mean, lifespan_percent_change_max) DESC",
+                "key_concept": "IMPORTANT: When user asks about lifespan effects without specifying mean vs max, show both metrics. Researchers may be interested in either average effects or maximum potential. Use LIMIT only when user specifically asks for 'top N' or similar"
             },
             {
                 "category": "Lifespan Effects - Mean vs Maximum",
                 "description": "Compare mean vs maximum lifespan changes for the same interventions",
-                "query": "SELECT HGNC, model_organism, lifespan_percent_change_mean, lifespan_percent_change_max, (lifespan_percent_change_max - lifespan_percent_change_mean) as max_vs_mean_diff FROM lifespan_change WHERE lifespan_percent_change_mean IS NOT NULL AND lifespan_percent_change_max IS NOT NULL AND effect_on_lifespan = 'increases lifespan' ORDER BY max_vs_mean_diff DESC LIMIT 15",
-                "key_concept": "Show the difference between maximum and mean effects to highlight variability in responses"
+                "query": "SELECT HGNC, model_organism, lifespan_percent_change_mean, lifespan_percent_change_max, (lifespan_percent_change_max - lifespan_percent_change_mean) as max_vs_mean_diff FROM lifespan_change WHERE lifespan_percent_change_mean IS NOT NULL AND lifespan_percent_change_max IS NOT NULL AND effect_on_lifespan = 'increases lifespan' ORDER BY max_vs_mean_diff DESC",
+                "key_concept": "Show the difference between maximum and mean effects to highlight variability in responses. Use LIMIT only when user specifically asks for 'top N' or similar"
             },
             
             # Multi-value field queries (CRITICAL pattern)
@@ -513,6 +535,18 @@ All tables are linked by HGNC gene symbols, allowing for comprehensive cross-tab
                 "description": "Genes with both experimental lifespan effects and population longevity associations",
                 "query": "SELECT DISTINCT lc.HGNC, lc.effect_on_lifespan, lc.model_organism, la.ethnicity, la.\"study type\" FROM lifespan_change lc INNER JOIN longevity_associations la ON lc.HGNC = la.HGNC WHERE lc.effect_on_lifespan = 'increases lifespan'",
                 "key_concept": "Join tables using HGNC to combine experimental and population data"
+            },
+            {
+                "category": "Cross-Table Analysis - CRITICAL PATTERN",
+                "description": "COMPREHENSIVE AGING EVIDENCE: For questions asking about 'evidence of gene X and aging', ALWAYS query ALL 4 tables",
+                "query": "SELECT criteria FROM gene_criteria WHERE HGNC = 'PTEN'",
+                "key_concept": "CRITICAL: For comprehensive aging evidence questions (like 'What evidence of the link between X and aging'), you MUST query ALL 4 tables: 1) gene_criteria 2) gene_hallmarks 3) lifespan_change 4) longevity_associations. The longevity_associations table contains crucial human population study data that must be included."
+            },
+            {
+                "category": "Cross-Table Analysis - HUMAN POPULATION DATA",
+                "description": "ALWAYS include human longevity associations when asked about aging evidence",
+                "query": "SELECT \"polymorphism id\", \"nucleotide substitution\", \"amino acid substitution\", ethnicity, \"study type\" FROM longevity_associations WHERE HGNC = 'PTEN'",
+                "key_concept": "ESSENTIAL: When user asks for aging evidence of a gene, human population studies from longevity_associations table are a key component. Include polymorphism details, ethnicity, and study type."
             },
             {
                 "category": "Cross-Table Analysis",
@@ -548,21 +582,27 @@ All tables are linked by HGNC gene symbols, allowing for comprehensive cross-tab
                 "category": "Population Genetics",
                 "description": "Longevity associations by ethnicity and study type",
                 "query": "SELECT ethnicity, \"study type\", COUNT(*) as association_count FROM longevity_associations WHERE ethnicity != 'n/a' GROUP BY ethnicity, \"study type\" ORDER BY association_count DESC",
-                "key_concept": "Analyze population genetics patterns across ethnicities"
+                "key_concept": "Analyze population genetics patterns across ethnicities. No LIMIT needed for aggregate statistics"
             },
             {
                 "category": "Population Genetics",
-                "description": "SNP associations with specific genes",
-                "query": "SELECT HGNC, \"polymorphism type\", \"nucleotide substitution\", ethnicity FROM longevity_associations WHERE \"polymorphism type\" = 'SNP' AND HGNC IN ('APOE', 'FOXO3', 'SIRT1') ORDER BY HGNC",
-                "key_concept": "Focus on specific polymorphism types and well-known longevity genes"
+                "description": "ALL polymorphisms for specific genes (no LIMIT when user asks about gene polymorphisms)",
+                "query": "SELECT HGNC, \"polymorphism type\", \"polymorphism id\", \"nucleotide substitution\", ethnicity, \"study type\" FROM longevity_associations WHERE HGNC = 'FOXO3'",
+                "key_concept": "When user asks about polymorphisms in a gene, show ALL entries without LIMIT to provide complete information"
+            },
+            {
+                "category": "Population Genetics - When to use LIMIT",
+                "description": "Top 5 genes with most longevity associations (LIMIT appropriate here)",
+                "query": "SELECT HGNC, COUNT(*) as association_count FROM longevity_associations GROUP BY HGNC ORDER BY association_count DESC LIMIT 5",
+                "key_concept": "Use LIMIT only when user specifically asks for 'top N' results or similar superlative language"
             },
             
             # Summary and statistical queries
             {
                 "category": "Summary Statistics",
-                "description": "Top genes by number of experiments across all organisms",
-                "query": "SELECT HGNC, COUNT(*) as experiment_count, COUNT(DISTINCT model_organism) as organism_count FROM lifespan_change WHERE HGNC IS NOT NULL GROUP BY HGNC ORDER BY experiment_count DESC LIMIT 15",
-                "key_concept": "Count experiments and organisms per gene for research breadth"
+                "description": "Top genes by number of experiments across all organisms (use LIMIT only when user asks for 'top N')",
+                "query": "SELECT HGNC, COUNT(*) as experiment_count, COUNT(DISTINCT model_organism) as organism_count FROM lifespan_change WHERE HGNC IS NOT NULL GROUP BY HGNC ORDER BY experiment_count DESC LIMIT 10",
+                "key_concept": "Count experiments and organisms per gene for research breadth. Use LIMIT only when user specifically asks for 'top N' genes, otherwise show all results"
             },
             {
                 "category": "Summary Statistics",
@@ -739,37 +779,45 @@ All tables are linked by HGNC gene symbols, allowing for comprehensive cross-tab
 # Initialize the OpenGenes MCP server (which inherits from FastMCP)
 mcp = OpenGenesMCP()
 
-# CLI functions
-def cli_app():
-    """Run the MCP server."""
-    parser = argparse.ArgumentParser(description="OpenGenes MCP Server")
-    parser.add_argument("--host", default=DEFAULT_HOST, help="Host to bind to")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port to bind to")
-    parser.add_argument("--transport", default="streamable-http", help="Transport type")
-    
-    args = parser.parse_args()
-    
-    mcp.run(transport=args.transport, host=args.host, port=args.port)
+# Create typer app
+app = typer.Typer(help="OpenGenes MCP Server - Database query interface for OpenGenes aging research data")
 
-def cli_app_stdio():
+@app.command("run")
+def cli_app(
+    host: str = typer.Option(DEFAULT_HOST, "--host", help="Host to bind to"),
+    port: int = typer.Option(DEFAULT_PORT, "--port", help="Port to bind to"),
+    transport: str = typer.Option("streamable-http", "--transport", help="Transport type")
+) -> None:
+    """Run the MCP server with specified transport."""
+    mcp.run(transport=transport, host=host, port=port)
+
+@app.command("stdio")
+def cli_app_stdio(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output")
+) -> None:
     """Run the MCP server with stdio transport."""
-    parser = argparse.ArgumentParser(description="OpenGenes MCP Server (STDIO transport)")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
-    
-    # Parse args but don't use them since stdio doesn't need host/port
-    args = parser.parse_args()
-    
     mcp.run(transport="stdio")
 
-def cli_app_sse():
+@app.command("sse")
+def cli_app_sse(
+    host: str = typer.Option(DEFAULT_HOST, "--host", help="Host to bind to"),
+    port: int = typer.Option(DEFAULT_PORT, "--port", help="Port to bind to")
+) -> None:
     """Run the MCP server with SSE transport."""
-    parser = argparse.ArgumentParser(description="OpenGenes MCP Server (SSE transport)")
-    parser.add_argument("--host", default=DEFAULT_HOST, help="Host to bind to")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port to bind to")
-    
-    args = parser.parse_args()
-    
-    mcp.run(transport="sse", host=args.host, port=args.port)
+    mcp.run(transport="sse", host=host, port=port)
+
+# Standalone CLI functions for direct script access
+def cli_app_run() -> None:
+    """Standalone function for opengenes-mcp-run script."""
+    mcp.run(transport="streamable-http", host=DEFAULT_HOST, port=DEFAULT_PORT)
+
+def cli_app_stdio() -> None:
+    """Standalone function for opengenes-mcp-stdio script."""
+    mcp.run(transport="stdio")
+
+def cli_app_sse() -> None:
+    """Standalone function for opengenes-mcp-sse script."""
+    mcp.run(transport="sse", host=DEFAULT_HOST, port=DEFAULT_PORT)
 
 if __name__ == "__main__":
-    cli_app()
+    app()
