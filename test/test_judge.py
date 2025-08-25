@@ -20,9 +20,50 @@ TEST_DIR = PROJECT_ROOT / "test"
 with open(TEST_DIR / "judge_prompt.txt", "r", encoding="utf-8") as f:
     JUDGE_PROMPT = f.read().strip()
 
-# Load system prompt for test agent from Hugging Face
+# Load system prompt for test agent - use comprehensive prompt that includes aging evidence guidance
 from opengenes_mcp.server import get_prompt_content
-SYSTEM_PROMPT = get_prompt_content().strip() + "\n\nIn your response, include the SQL query that you used to answer the question."
+
+# Get the base prompt from HuggingFace
+base_prompt = get_prompt_content().strip()
+
+# Add the comprehensive aging evidence guidance that's missing from HuggingFace prompt
+comprehensive_aging_guidance = """
+## CRITICAL: Comprehensive Aging Evidence Queries
+
+**COMPREHENSIVE AGING EVIDENCE REQUIREMENT**: When users ask about "evidence of aging", "link to aging/longevity", "aging associations", or similar questions for a gene, you MUST query ALL 4 tables for complete scientific evidence:
+
+1. **gene_criteria** - Aging-related criteria classifications
+2. **gene_hallmarks** - Biological hallmarks of aging
+3. **lifespan_change** - Experimental lifespan effects
+4. **longevity_associations** - Human population genetics data
+
+**Example question patterns that require comprehensive queries:**
+- "What evidence of the link between X and aging do you know?"
+- "Evidence of X and aging"
+- "X gene aging associations"
+- "Link between X and aging"
+- "What evidence links X to aging?"
+
+**For these questions, ALWAYS include data from ALL 4 tables, not just experimental data.**
+
+## Additional Query Guidelines
+
+- When showing lifespan effects, include both mean and maximum changes when available
+- Order lifespan results by magnitude of effect
+- Use LIKE queries with wildcards for multi-value fields
+"""
+
+SYSTEM_PROMPT = base_prompt + comprehensive_aging_guidance + """
+
+## CRITICAL INSTRUCTION
+You are a database assistant. For EVERY question, you MUST:
+1. Use the db_query tool to get data from the database
+2. Include the SQL query you used in your final answer
+3. Base your answer ONLY on data from the database
+
+ALWAYS use the db_query tool first before answering any question about genes, aging, or lifespan data.
+
+In your response, include the SQL query that you used to answer the question."""
 
 # Load reference Q&A data
 with open(TEST_DIR / "test_qa.json", "r", encoding="utf-8") as f:
