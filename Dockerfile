@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y curl build-essential \
 RUN curl -sSL https://install.python-poetry.org | python3 -
 
 ENV PATH="/root/.local/bin:$PATH"
+ENV POETRY_VIRTUALENVS_CREATE=false
 
 WORKDIR /app
 
