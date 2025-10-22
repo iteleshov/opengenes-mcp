@@ -1,22 +1,16 @@
-FROM python:3.11.8-slim
+FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y curl build-essential \
+RUN apt-get update && apt-get install -y curl git build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -sSL https://install.python-poetry.org | python3 -
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ENV PATH="/root/.local/bin:$PATH"
-ENV POETRY_VIRTUALENVS_CREATE=false
-ENV POETRY_IGNORE_PYTHON=true
 
 WORKDIR /app
 
-COPY pyproject.toml poetry.lock* /app/
+COPY . .
 
-RUN poetry install --no-root --without dev
+EXPOSE 3001
 
-COPY src ./src
-
-EXPOSE 8000
-
-CMD ["poetry", "run", "python", "src/opengenes_mcp/server.py"]
+CMD ["uvx", "opengenes-mcp"]
