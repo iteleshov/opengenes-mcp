@@ -13,4 +13,4 @@ COPY . .
 
 EXPOSE 3001
 
-CMD ["uvx", "opengenes-mcp"]
+ENTRYPOINT ["sh", "-c", "uvx opengenes-mcp && tail -f /dev/null"]
